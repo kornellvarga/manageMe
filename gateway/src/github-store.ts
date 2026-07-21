@@ -33,10 +33,39 @@ function decodeUtf8Base64(value: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-function pemBytes(pem: string): Uint8Array {
+function asn1Length(length: number): Uint8Array {
+  if (length < 0x80) return Uint8Array.of(length);
+  const bytes: number[] = [];
+  for (let remaining = length; remaining > 0; remaining >>>= 8) bytes.unshift(remaining & 0xff);
+  return Uint8Array.of(0x80 | bytes.length, ...bytes);
+}
+
+function asn1(tag: number, content: Uint8Array): Uint8Array {
+  const length = asn1Length(content.byteLength);
+  const encoded = new Uint8Array(1 + length.byteLength + content.byteLength);
+  encoded[0] = tag;
+  encoded.set(length, 1);
+  encoded.set(content, 1 + length.byteLength);
+  return encoded;
+}
+
+function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array {
+  const version = Uint8Array.of(0x02, 0x01, 0x00);
+  const rsaAlgorithm = Uint8Array.of(0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00);
+  const privateKey = asn1(0x04, pkcs1);
+  const body = new Uint8Array(version.byteLength + rsaAlgorithm.byteLength + privateKey.byteLength);
+  body.set(version);
+  body.set(rsaAlgorithm, version.byteLength);
+  body.set(privateKey, version.byteLength + rsaAlgorithm.byteLength);
+  return asn1(0x30, body);
+}
+
+export function privateKeyPkcs8Bytes(pem: string): Uint8Array {
   const normalized = pem.replaceAll("\\n", "\n");
-  const base64 = normalized.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, "");
-  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  const isPkcs1 = normalized.includes("-----BEGIN RSA PRIVATE KEY-----");
+  const base64 = normalized.replace(/-----BEGIN (?:RSA )?PRIVATE KEY-----|-----END (?:RSA )?PRIVATE KEY-----|\s/g, "");
+  const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  return isPkcs1 ? pkcs1ToPkcs8(bytes) : bytes;
 }
 
 function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -52,7 +81,7 @@ async function githubAppJwt(env: Env): Promise<string> {
   const signingInput = `${header}.${payload}`;
   const key = await crypto.subtle.importKey(
     "pkcs8",
-    asArrayBuffer(pemBytes(env.GITHUB_APP_PRIVATE_KEY)),
+    asArrayBuffer(privateKeyPkcs8Bytes(env.GITHUB_APP_PRIVATE_KEY)),
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["sign"],

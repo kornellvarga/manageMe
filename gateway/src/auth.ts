@@ -10,6 +10,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const ALLOWED_SCOPES = ["manage:read", "manage:write"];
 const WEB_CLIENT_ID = "manageme-web-v1";
+const MCP_RESOURCE_PATH = "/mcp";
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -66,6 +67,15 @@ function normalizedOrigin(value: string): string {
   return value.replace(/\/$/, "");
 }
 
+function allowedResources(env: Env): string[] {
+  const origin = normalizedOrigin(env.PUBLIC_ORIGIN);
+  return [origin, `${origin}${MCP_RESOURCE_PATH}`];
+}
+
+function isAllowedResource(env: Env, resource: string): boolean {
+  return allowedResources(env).includes(normalizedOrigin(resource));
+}
+
 function safeScopes(raw: string | null | undefined): string[] {
   const requested = (raw || "manage:read manage:write").split(/\s+/).filter(Boolean);
   if (!requested.every((scope) => ALLOWED_SCOPES.includes(scope))) throw new Error("Unsupported OAuth scope.");
@@ -115,7 +125,7 @@ export function authorizationMetadata(env: Env): Response {
 export function protectedResourceMetadata(env: Env): Response {
   const origin = normalizedOrigin(env.PUBLIC_ORIGIN);
   return json({
-    resource: origin,
+    resource: `${origin}${MCP_RESOURCE_PATH}`,
     authorization_servers: [origin],
     scopes_supported: ALLOWED_SCOPES,
     resource_documentation: `${origin}/docs`,
@@ -153,11 +163,11 @@ export async function authorize(request: Request, env: Env): Promise<Response> {
   const redirectUri = url.searchParams.get("redirect_uri") || "";
   const codeChallenge = url.searchParams.get("code_challenge") || "";
   const clientState = url.searchParams.get("state") || "";
-  const resource = url.searchParams.get("resource") || normalizedOrigin(env.PUBLIC_ORIGIN);
+  const resource = url.searchParams.get("resource") || `${normalizedOrigin(env.PUBLIC_ORIGIN)}${MCP_RESOURCE_PATH}`;
   try {
     if (url.searchParams.get("response_type") !== "code") throw new Error("Only the authorization code flow is supported.");
     if (url.searchParams.get("code_challenge_method") !== "S256" || !codeChallenge) throw new Error("PKCE with S256 is required.");
-    if (normalizedOrigin(resource) !== normalizedOrigin(env.PUBLIC_ORIGIN)) throw new Error("OAuth resource does not match this ManageMe server.");
+    if (!isAllowedResource(env, resource)) throw new Error("OAuth resource does not match this ManageMe server.");
     await validateClientRedirect(env, clientId, redirectUri);
     const scopes = safeScopes(url.searchParams.get("scope"));
     const githubState = await signClaims(env, {
@@ -277,7 +287,7 @@ export async function authenticate(request: Request, env: Env, requiredScope: "m
   try {
     const claims = await verifyClaims(env, bearer, "access");
     const scopes = Array.isArray(claims.scopes) ? claims.scopes.map(String) : [];
-    if (claims.sub !== "kornel" || normalizedOrigin(String(claims.aud)) !== normalizedOrigin(env.PUBLIC_ORIGIN) || !scopes.includes(requiredScope)) return null;
+    if (claims.sub !== "kornel" || !isAllowedResource(env, String(claims.aud)) || !scopes.includes(requiredScope)) return null;
     return { profileId: "kornel", scopes, source: "oauth" };
   } catch {
     return null;
