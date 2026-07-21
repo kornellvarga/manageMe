@@ -19,6 +19,9 @@ The default loop is deliberately small:
 
 Personal state is never placed in the public Pages repository. The web app and APK authenticate through the gateway; the gateway alone can update `state.json` in a separate private GitHub repository.
 
+- Live app: <https://kornellvarga.github.io/manageMe/>
+- Gateway health: <https://manageme-gateway.kornel-718.workers.dev/health>
+
 ## Run locally
 
 ```powershell
@@ -46,4 +49,3 @@ $env:ANDROID_HOME='C:\Users\korne\AppData\Local\Android\Sdk'
 ```
 
 See [deployment](docs/DEPLOYMENT.md), [the data model](docs/DATA_MODEL.md), and [assistant setup](docs/ASSISTANT_SETUP.md).
-

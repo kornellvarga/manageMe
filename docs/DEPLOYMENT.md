@@ -27,7 +27,7 @@ Never copy the live `state.json` into the public application repository.
 Create one private GitHub App owned by Kornel:
 
 - Homepage: the ManageMe Pages URL.
-- Callback URL: `https://YOUR-WORKER.workers.dev/auth/github/callback`.
+- Callback URL: `https://manageme-gateway.kornel-718.workers.dev/auth/github/callback`.
 - Webhook: disabled.
 - Repository permission, Contents: **Read and write**.
 - Installation: only `manageme-data`.
@@ -81,4 +81,3 @@ The Pages application works as a local/offline preview before this variable exis
 ## 5. Automated gateway deployments
 
 To use the manual `Deploy ManageMe gateway` workflow, add repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The ManageMe/GitHub secrets above remain stored by Cloudflare, not GitHub Actions.
-

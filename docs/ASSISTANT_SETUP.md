@@ -3,7 +3,7 @@
 The gateway exposes the same private state as an authenticated MCP server at:
 
 ```text
-https://YOUR-WORKER.workers.dev/mcp
+https://manageme-gateway.kornel-718.workers.dev/mcp
 ```
 
 It supports read tools for focus, item lists, and review, plus scoped write tools for capture, completion, rescheduling, focus selection, and project creation.
@@ -17,7 +17,7 @@ Add the Worker MCP URL as a custom connector/app. The OAuth flow opens GitHub an
 After the gateway is live:
 
 ```powershell
-codex mcp add manageme --url https://YOUR-WORKER.workers.dev/mcp
+codex mcp add manageme --url https://manageme-gateway.kornel-718.workers.dev/mcp
 ```
 
 Restart Codex after adding it, then complete the GitHub authorization when prompted.
@@ -37,4 +37,3 @@ The server also returns these constraints in MCP initialization instructions, so
 - Use one unique request ID per intended mutation.
 - Do not silently add dates, urgency, or completion.
 - Report what changed in plain language.
-
