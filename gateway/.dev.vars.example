@@ -1,0 +1,18 @@
+# Public configuration
+PUBLIC_ORIGIN=http://localhost:8787
+WEB_ORIGIN=http://localhost:3000
+GITHUB_DATA_REPOSITORY=kornellvarga/manageme-data
+GITHUB_DATA_BRANCH=main
+GITHUB_DATA_PATH=state.json
+ALLOWED_GITHUB_USER_ID=
+ALLOWED_GITHUB_LOGIN=kornellvarga
+
+# Secrets: set with `wrangler secret put <NAME>` in production.
+AUTH_SIGNING_SECRET=replace-with-at-least-32-random-bytes
+MANAGEME_MCP_TOKEN=replace-with-a-separate-random-token
+GITHUB_OAUTH_CLIENT_ID=
+GITHUB_OAUTH_CLIENT_SECRET=
+GITHUB_APP_ID=
+GITHUB_INSTALLATION_ID=
+GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+

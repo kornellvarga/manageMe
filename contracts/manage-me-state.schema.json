@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manageme.local/contracts/manage-me-state.schema.json",
+  "title": "ManageMe state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "revision",
+    "profile",
+    "areas",
+    "projects",
+    "tasks",
+    "routines",
+    "dailyFocus",
+    "activity",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "profile": { "$ref": "#/$defs/profile" },
+    "areas": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/area" }
+    },
+    "projects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/project" }
+    },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/task" }
+    },
+    "routines": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/routine" }
+    },
+    "dailyFocus": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/dailyFocus" }
+    },
+    "activity": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/activity" }
+    },
+    "updatedAt": { "$ref": "#/$defs/timestamp" }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$"
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "timezone", "locale"],
+      "properties": {
+        "id": { "const": "kornel" },
+        "displayName": { "const": "Kornel" },
+        "timezone": { "const": "Europe/Budapest" },
+        "locale": { "type": "string", "minLength": 2 }
+      }
+    },
+    "area": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "status", "color", "sortOrder"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "status": { "enum": ["active", "paused", "archived"] },
+        "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "sortOrder": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "areaId",
+        "title",
+        "desiredOutcome",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "areaId": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "desiredOutcome": { "type": "string", "maxLength": 500 },
+        "status": { "enum": ["active", "waiting", "paused", "done", "archived"] },
+        "dueDate": { "$ref": "#/$defs/date" },
+        "reviewDate": { "$ref": "#/$defs/date" },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" },
+        "completedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "status",
+        "importance",
+        "energy",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "areaId": { "$ref": "#/$defs/id" },
+        "projectId": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "notes": { "type": "string", "maxLength": 4000 },
+        "status": {
+          "enum": ["inbox", "ready", "scheduled", "waiting", "someday", "done", "cancelled"]
+        },
+        "importance": { "enum": ["low", "normal", "high", "critical"] },
+        "energy": { "enum": ["low", "medium", "high"] },
+        "estimateMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+        "dueAt": { "$ref": "#/$defs/timestamp" },
+        "scheduledFor": { "$ref": "#/$defs/date" },
+        "waitingFor": { "type": "string", "maxLength": 240 },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" },
+        "completedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "routine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "areaId", "cadence", "active"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "areaId": { "$ref": "#/$defs/id" },
+        "cadence": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "active": { "type": "boolean" },
+        "lastCompletedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "dailyFocus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "taskIds", "selectedAt", "selectedBy"],
+      "properties": {
+        "date": { "$ref": "#/$defs/date" },
+        "taskIds": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "selectedAt": { "$ref": "#/$defs/timestamp" },
+        "selectedBy": { "enum": ["kornel", "assistant"] },
+        "reason": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "at", "actor", "type", "summary"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "at": { "$ref": "#/$defs/timestamp" },
+        "actor": { "enum": ["kornel", "assistant", "web", "android", "system"] },
+        "type": {
+          "enum": [
+            "task_captured",
+            "task_updated",
+            "task_completed",
+            "focus_selected",
+            "project_created",
+            "project_updated",
+            "sync"
+          ]
+        },
+        "entityId": { "$ref": "#/$defs/id" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "requestId": { "$ref": "#/$defs/id" }
+      }
+    }
+  }
+}
+

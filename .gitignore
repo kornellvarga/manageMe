@@ -1,0 +1,29 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+*.local
+.local-data/
+
+# JavaScript
+node_modules/
+.next/
+out/
+dist/
+coverage/
+.wrangler/
+.playwright-cli/
+output/playwright/
+
+# Android and Gradle
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

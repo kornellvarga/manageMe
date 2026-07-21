@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manageme.local/contracts/manage-me-command.schema.json",
+  "title": "ManageMe command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestId", "profileId", "actor", "type", "payload"],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$"
+    },
+    "profileId": { "const": "kornel" },
+    "actor": { "enum": ["kornel", "assistant", "web", "android"] },
+    "expectedRevision": { "type": "integer", "minimum": 0 },
+    "type": {
+      "enum": [
+        "capture_task",
+        "update_task",
+        "complete_task",
+        "select_focus",
+        "create_project",
+        "update_project"
+      ]
+    },
+    "payload": { "type": "object" }
+  }
+}
+

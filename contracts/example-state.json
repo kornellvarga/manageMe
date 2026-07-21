@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "revision": 0,
+  "profile": {
+    "id": "kornel",
+    "displayName": "Kornel",
+    "timezone": "Europe/Budapest",
+    "locale": "en-HU"
+  },
+  "areas": [
+    { "id": "home", "name": "Home", "status": "active", "color": "#2F6B5F", "sortOrder": 0 },
+    { "id": "phd", "name": "PhD research", "status": "active", "color": "#4059AD", "sortOrder": 1 },
+    { "id": "career", "name": "Career", "status": "active", "color": "#A44A3F", "sortOrder": 2 },
+    { "id": "anime-studio", "name": "Anime Studio", "status": "active", "color": "#7B4EA3", "sortOrder": 3 },
+    { "id": "finance", "name": "Finance", "status": "active", "color": "#B7791F", "sortOrder": 4 }
+  ],
+  "projects": [],
+  "tasks": [],
+  "routines": [],
+  "dailyFocus": [],
+  "activity": [],
+  "updatedAt": "2026-07-21T08:00:00.000Z"
+}

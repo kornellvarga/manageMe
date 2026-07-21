@@ -1,0 +1,19 @@
+{
+  "name": "@manageme/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260702.1",
+    "@types/node": "^22.15.30",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "wrangler": "4.92.0"
+  }
+}

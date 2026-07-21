@@ -1,0 +1,14 @@
+<resources>
+    <color name="brand_primary">#2457A6</color>
+    <color name="brand_primary_dark">#173C75</color>
+    <color name="brand_accent">#0F7B63</color>
+    <color name="app_background">#F7F9FC</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_muted">#F3F6FB</color>
+    <color name="surface_income">#EAF8F3</color>
+    <color name="surface_expense">#FFF1F0</color>
+    <color name="tile_border">#D6DCE6</color>
+    <color name="text_primary">#1B1F24</color>
+    <color name="text_secondary">#5F6B7A</color>
+    <color name="danger">#B3261E</color>
+</resources>
