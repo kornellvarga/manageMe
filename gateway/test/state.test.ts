@@ -36,3 +36,28 @@ test("completing a task removes it from daily focus", () => {
   assert.deepEqual(state.dailyFocus[0].taskIds, []);
 });
 
+test("updating a task changes only supplied fields and can clear optional values", () => {
+  let state = createEmptyState();
+  state = applyCommand(state, command("capture_001", "capture_task", {
+    id: "task_one",
+    title: "One thing",
+    notes: "Old notes",
+    areaId: "home",
+    importance: "normal",
+  })).state;
+
+  state = applyCommand(state, command("update_001", "update_task", {
+    id: "task_one",
+    notes: null,
+    status: "waiting",
+    importance: "high",
+    waitingFor: "A reply",
+  })).state;
+
+  assert.equal(state.tasks[0].title, "One thing");
+  assert.equal(state.tasks[0].notes, undefined);
+  assert.equal(state.tasks[0].status, "waiting");
+  assert.equal(state.tasks[0].importance, "high");
+  assert.equal(state.tasks[0].waitingFor, "A reply");
+  assert.equal(state.tasks[0].areaId, "home");
+});
