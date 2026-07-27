@@ -15,21 +15,31 @@ interface ToolDefinition {
   description: string;
   inputSchema: Record<string, unknown>;
   annotations: Record<string, boolean>;
+  securitySchemes: Array<{ type: "oauth2"; scopes: string[] }>;
 }
 
 const SERVER_INSTRUCTIONS = "ManageMe is Kornel's private personal focus system. Use read tools whenever Kornel asks what to do, what is due, or how progress is going. Keep Today to at most three concrete actions. Capture what Kornel explicitly mentions. Never invent deadlines, silently reschedule work, or mark a task complete without Kornel saying it is done. Areas are ongoing responsibilities; projects are finishable outcomes; tasks are next actions.";
 
-function tool(name: string, title: string, description: string, properties: Record<string, unknown>, required: string[], readOnly: boolean, idempotent = false): ToolDefinition {
+function tool(
+  name: string,
+  title: string,
+  description: string,
+  properties: Record<string, unknown>,
+  required: string[],
+  readOnly: boolean,
+  idempotent = false,
+): ToolDefinition {
   return {
     name,
     title,
     description,
     inputSchema: { type: "object", additionalProperties: false, properties, required },
     annotations: { readOnlyHint: readOnly, destructiveHint: false, idempotentHint: idempotent, openWorldHint: false },
+    securitySchemes: [{ type: "oauth2", scopes: readOnly ? ["manage:read"] : ["manage:read", "manage:write"] }],
   };
 }
 
-export function toolsFor(scopes: string[]): ToolDefinition[] {
+export function toolsFor(_scopes: string[]): ToolDefinition[] {
   const readTools: ToolDefinition[] = [
     tool("manage_get_focus", "Get Kornel's focus", "Use this when Kornel asks what to do now or what matters today. Returns the saved Today list, or up to three clearly labelled suggestions without changing state.", {}, [], true, true),
     tool("manage_list_items", "List tasks and projects", "Use this when Kornel asks what is open, due, waiting, in an area, or inside a project.", {
@@ -41,7 +51,6 @@ export function toolsFor(scopes: string[]): ToolDefinition[] {
     }, [], true, true),
     tool("manage_review", "Review progress", "Use this for a short, non-judgmental review of Kornel's inbox, active outcomes, waiting items, neglected work, and recent completions.", {}, [], true, true),
   ];
-  if (!scopes.includes("manage:write")) return readTools;
   return [
     ...readTools,
     tool("manage_capture_task", "Capture a task", "Use this when Kornel names something he needs to remember or do. Capture it in Inbox exactly once; do not invent a deadline.", {
@@ -54,6 +63,21 @@ export function toolsFor(scopes: string[]): ToolDefinition[] {
       estimate_minutes: { type: "integer", minimum: 1, maximum: 1440 },
       request_id: { type: "string", description: "Optional stable idempotency key for retries." },
     }, ["title"], false),
+    tool("manage_update_task", "Update a task", "Use this when Kornel changes an existing task's wording, notes, status, priority, schedule, waiting details, area, or project. Change only fields supported by what he said; do not invent dates or completion.", {
+      task_id: { type: "string" },
+      title: { type: "string", minLength: 1, maxLength: 240 },
+      notes: { type: "string", maxLength: 4000, description: "Replacement notes. Use an empty string only when Kornel explicitly clears them." },
+      status: { type: "string", enum: ["inbox", "ready", "scheduled", "waiting", "someday", "cancelled"] },
+      importance: { type: "string", enum: ["low", "normal", "high", "critical"] },
+      energy: { type: "string", enum: ["low", "medium", "high"] },
+      estimate_minutes: { type: ["integer", "null"], minimum: 1, maximum: 1440, description: "Replacement estimate. Use null only when Kornel explicitly clears it." },
+      due_at: { type: ["string", "null"], format: "date-time", description: "Replacement deadline. Use null only when Kornel explicitly clears it." },
+      scheduled_for: { type: ["string", "null"], format: "date", description: "Replacement scheduled date. Use null only when Kornel explicitly clears it." },
+      waiting_for: { type: ["string", "null"], maxLength: 500, description: "Replacement waiting condition. Use null only when Kornel explicitly clears it." },
+      area_id: { type: ["string", "null"], description: "Replacement area id. Use null only when Kornel explicitly removes the task from an area." },
+      project_id: { type: ["string", "null"], description: "Replacement project id. Use null only when Kornel explicitly removes the task from a project." },
+      request_id: { type: "string", description: "Optional stable idempotency key for retries." },
+    }, ["task_id"], false, true),
     tool("manage_complete_task", "Complete a task", "Use only after Kornel says a specific task is done. This removes it from Today's focus while preserving history.", {
       task_id: { type: "string" },
       request_id: { type: "string", description: "Optional stable idempotency key for retries." },
@@ -75,6 +99,16 @@ export function toolsFor(scopes: string[]): ToolDefinition[] {
       due_date: { type: "string", format: "date" },
       request_id: { type: "string", description: "Optional stable idempotency key for retries." },
     }, ["area_id", "title"], false),
+    tool("manage_update_project", "Update a project", "Use this when Kornel changes an existing project's title, desired outcome, status, dates, or area. Change only fields supported by what he said.", {
+      project_id: { type: "string" },
+      title: { type: "string", minLength: 1, maxLength: 160 },
+      desired_outcome: { type: "string", maxLength: 500 },
+      status: { type: "string", enum: ["active", "waiting", "paused", "done", "archived"] },
+      due_date: { type: ["string", "null"], format: "date", description: "Replacement due date. Use null only when Kornel explicitly clears it." },
+      review_date: { type: ["string", "null"], format: "date", description: "Replacement review date. Use null only when Kornel explicitly clears it." },
+      area_id: { type: "string" },
+      request_id: { type: "string", description: "Optional stable idempotency key for retries." },
+    }, ["project_id"], false, true),
   ];
 }
 
@@ -94,6 +128,15 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, s
 
 function resultText(message: string, structuredContent: Record<string, unknown>, isError = false): Record<string, unknown> {
   return { content: [{ type: "text", text: message }], structuredContent, ...(isError ? { isError: true } : {}) };
+}
+
+function writeScopeChallenge(env: Env): Record<string, unknown> {
+  const metadata = `${env.PUBLIC_ORIGIN.replace(/\/$/, "")}/.well-known/oauth-protected-resource`;
+  const challenge = `Bearer resource_metadata="${metadata}", scope="manage:read manage:write", error="insufficient_scope", error_description="Write access is required to update ManageMe."`;
+  return {
+    ...resultText("Reconnect ManageMe with write access to make this change.", { error: "insufficient_scope" }, true),
+    _meta: { "mcp/www_authenticate": [challenge] },
+  };
 }
 
 function score(task: Task, now = new Date()): number {
@@ -163,7 +206,7 @@ async function callTool(name: string, args: Record<string, unknown>, env: Env, a
     return resultText(`Review: ${review.inboxCount} inbox, ${review.projectsWithoutNextAction.length} active projects without a next action, ${review.waitingCount} waiting, and ${review.completedLast7Days} completed this week.`, review);
   }
 
-  if (!auth.scopes.includes("manage:write")) return resultText("This connection has read-only access.", { error: "insufficient_scope" }, true);
+  if (!auth.scopes.includes("manage:write")) return writeScopeChallenge(env);
   let next: ManageMeState;
   if (name === "manage_capture_task") {
     next = await applyCommandToGitHub(env, command("capture_task", args, {
@@ -177,6 +220,26 @@ async function callTool(name: string, args: Record<string, unknown>, env: Env, a
     }));
     const captured = next.tasks.find((task) => task.title === String(args.title));
     return resultText(`Captured in Inbox: ${String(args.title)}`, { task: captured, revision: next.revision });
+  }
+  if (name === "manage_update_task") {
+    const payload: Record<string, unknown> = { id: args.task_id };
+    const fields = [
+      ["title", "title"],
+      ["notes", "notes"],
+      ["status", "status"],
+      ["importance", "importance"],
+      ["energy", "energy"],
+      ["estimate_minutes", "estimateMinutes"],
+      ["due_at", "dueAt"],
+      ["scheduled_for", "scheduledFor"],
+      ["waiting_for", "waitingFor"],
+      ["area_id", "areaId"],
+      ["project_id", "projectId"],
+    ] as const;
+    for (const [argument, field] of fields) if (argument in args) payload[field] = args[argument];
+    next = await applyCommandToGitHub(env, command("update_task", args, payload));
+    const updated = next.tasks.find((task) => task.id === args.task_id);
+    return resultText(`Updated: ${updated?.title || String(args.task_id)}`, { task: updated, revision: next.revision });
   }
   if (name === "manage_complete_task") {
     next = await applyCommandToGitHub(env, command("complete_task", args, { id: args.task_id }));
@@ -197,6 +260,21 @@ async function callTool(name: string, args: Record<string, unknown>, env: Env, a
     next = await applyCommandToGitHub(env, command("create_project", args, { areaId: args.area_id, title: args.title, desiredOutcome: args.desired_outcome, dueDate: args.due_date }));
     const created = next.projects.find((project) => project.title === String(args.title));
     return resultText(`Created project: ${String(args.title)}`, { project: created, revision: next.revision });
+  }
+  if (name === "manage_update_project") {
+    const payload: Record<string, unknown> = { id: args.project_id };
+    const fields = [
+      ["title", "title"],
+      ["desired_outcome", "desiredOutcome"],
+      ["status", "status"],
+      ["due_date", "dueDate"],
+      ["review_date", "reviewDate"],
+      ["area_id", "areaId"],
+    ] as const;
+    for (const [argument, field] of fields) if (argument in args) payload[field] = args[argument];
+    next = await applyCommandToGitHub(env, command("update_project", args, payload));
+    const updated = next.projects.find((project) => project.id === args.project_id);
+    return resultText(`Updated project: ${updated?.title || String(args.project_id)}`, { project: updated, revision: next.revision });
   }
   throw new Error(`Unknown tool: ${name}`);
 }
