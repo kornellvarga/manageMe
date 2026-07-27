@@ -6,7 +6,9 @@ The gateway exposes the same private state as an authenticated MCP server at:
 https://manageme-gateway.kornel-718.workers.dev/mcp
 ```
 
-It supports read tools for focus, item lists, and review, plus scoped write tools for capture, completion, rescheduling, focus selection, and project creation.
+It supports read tools for focus, item lists, and review, plus scoped write tools for task capture and updates, completion, rescheduling, focus selection, and project creation and updates.
+
+Read tools require `manage:read`. Write tools declare `manage:read manage:write` in their MCP `securitySchemes`. If a connection initially has only read access, write tools remain discoverable and return an MCP OAuth challenge when invoked so ChatGPT can request the additional scope.
 
 ## ChatGPT web and mobile
 

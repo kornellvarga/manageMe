@@ -1,6 +1,11 @@
 name: Deploy ManageMe gateway
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "gateway/**"
+      - ".github/workflows/gateway.yml"
   workflow_dispatch:
 
 permissions:
