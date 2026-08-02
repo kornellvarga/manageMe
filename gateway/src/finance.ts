@@ -1,6 +1,7 @@
 export type FinanceEntryType = "EXPENSE" | "INCOME";
 export type FinanceCurrency = "HUF" | "EUR" | "TRY";
 export type FinanceActor = "kornel" | "assistant" | "web" | "android" | "system";
+export type FinanceEntryStatus = "active" | "archived" | "all";
 
 export interface FinanceCategory {
   id: string;
@@ -20,6 +21,7 @@ export interface FinanceEntry {
   name: string;
   createdAtMillis: number;
   updatedAtMillis: number;
+  archivedAtMillis?: number;
   deletedAtMillis?: number;
   actor: FinanceActor;
 }
@@ -45,7 +47,15 @@ export interface FinanceCommand {
   requestId: string;
   profileId: "kornel";
   actor: Exclude<FinanceActor, "system">;
-  type: "add_entry" | "update_entry" | "delete_entry" | "add_category" | "delete_category";
+  type:
+    | "add_entry"
+    | "update_entry"
+    | "archive_entry"
+    | "restore_entry"
+    | "archive_before"
+    | "delete_entry"
+    | "add_category"
+    | "delete_category";
   payload: Record<string, unknown>;
 }
 
@@ -85,6 +95,11 @@ function timestamp(value: unknown, label: string, fallback = Date.now()): number
   return integer(value, label, 0, MAX_SAFE_MILLIS);
 }
 
+function optionalTimestamp(value: unknown, label: string, fallback: number): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  return timestamp(value, label, fallback);
+}
+
 export function normalizeFinanceType(value: unknown): FinanceEntryType {
   const normalized = String(value || "").trim().toUpperCase();
   if (normalized === "EXPENSE" || normalized === "INCOME") return normalized;
@@ -103,15 +118,22 @@ function normalizeActor(value: unknown, fallback: FinanceActor): FinanceActor {
   return ["kornel", "assistant", "web", "android", "system"].includes(actor) ? actor as FinanceActor : fallback;
 }
 
+export function normalizeFinanceStatus(value: unknown): FinanceEntryStatus {
+  const status = String(value || "active").trim().toLowerCase();
+  if (status === "active" || status === "archived" || status === "all") return status;
+  throw new Error("Finance status must be active, archived, or all.");
+}
+
 export function sanitizeFinanceEntry(value: unknown, fallbackActor: FinanceActor = "android"): FinanceEntry {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Finance entry must be an object.");
   const input = value as Record<string, unknown>;
   const category = cleanText(input.category, "Category", 120);
   const createdAtMillis = timestamp(input.createdAtMillis, "Entry date");
   const updatedAtMillis = timestamp(input.updatedAtMillis, "Entry update date", createdAtMillis);
-  const deletedAtMillis = input.deletedAtMillis === undefined || input.deletedAtMillis === null
+  const deletedAtMillis = optionalTimestamp(input.deletedAtMillis, "Entry deletion date", updatedAtMillis);
+  const archivedAtMillis = deletedAtMillis
     ? undefined
-    : timestamp(input.deletedAtMillis, "Entry deletion date", updatedAtMillis);
+    : optionalTimestamp(input.archivedAtMillis, "Entry archive date", updatedAtMillis);
   return {
     id: cleanId(input.id, "money"),
     type: normalizeFinanceType(input.type),
@@ -121,6 +143,7 @@ export function sanitizeFinanceEntry(value: unknown, fallbackActor: FinanceActor
     name: optionalText(input.name, 240) || category,
     createdAtMillis,
     updatedAtMillis: Math.max(updatedAtMillis, createdAtMillis),
+    archivedAtMillis,
     deletedAtMillis,
     actor: normalizeActor(input.actor, fallbackActor),
   };
@@ -130,9 +153,7 @@ export function sanitizeFinanceCategory(value: unknown): FinanceCategory {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Finance category must be an object.");
   const input = value as Record<string, unknown>;
   const updatedAtMillis = timestamp(input.updatedAtMillis, "Category update date");
-  const deletedAtMillis = input.deletedAtMillis === undefined || input.deletedAtMillis === null
-    ? undefined
-    : timestamp(input.deletedAtMillis, "Category deletion date", updatedAtMillis);
+  const deletedAtMillis = optionalTimestamp(input.deletedAtMillis, "Category deletion date", updatedAtMillis);
   return {
     id: cleanId(input.id, "category"),
     type: normalizeFinanceType(input.type),
@@ -182,7 +203,16 @@ export function isFinanceCommand(value: unknown): value is FinanceCommand {
     && typeof command.requestId === "string"
     && ID_PATTERN.test(command.requestId)
     && ["kornel", "assistant", "web", "android"].includes(String(command.actor))
-    && ["add_entry", "update_entry", "delete_entry", "add_category", "delete_category"].includes(String(command.type))
+    && [
+      "add_entry",
+      "update_entry",
+      "archive_entry",
+      "restore_entry",
+      "archive_before",
+      "delete_entry",
+      "add_category",
+      "delete_category",
+    ].includes(String(command.type))
     && Boolean(command.payload)
     && typeof command.payload === "object"
     && !Array.isArray(command.payload);
@@ -245,11 +275,16 @@ function findCategory(ledger: FinanceLedger, id: unknown): FinanceCategory {
   return category;
 }
 
-export function applyFinanceCommand(current: FinanceLedger, command: FinanceCommand, now = new Date()): { ledger: FinanceLedger; changed: boolean; entityId?: string } {
+export function applyFinanceCommand(
+  current: FinanceLedger,
+  command: FinanceCommand,
+  now = new Date(),
+): { ledger: FinanceLedger; changed: boolean; entityId?: string; affectedCount?: number } {
   if (current.appliedRequestIds.includes(command.requestId.toLowerCase())) return { ledger: current, changed: false };
   const next = structuredClone(current);
   const nowMillis = now.getTime();
   let entityId: string | undefined;
+  let affectedCount: number | undefined;
 
   switch (command.type) {
     case "add_entry": {
@@ -279,12 +314,48 @@ export function applyFinanceCommand(current: FinanceLedger, command: FinanceComm
       entityId = entry.id;
       break;
     }
-    case "delete_entry": {
+    case "archive_entry": {
       const entry = findEntry(next, command.payload.id);
-      entry.deletedAtMillis = nowMillis;
+      if (entry.deletedAtMillis) throw new Error("Deleted finance entry cannot be archived.");
+      entry.archivedAtMillis = nowMillis;
       entry.updatedAtMillis = nowMillis;
       entry.actor = command.actor;
       entityId = entry.id;
+      affectedCount = 1;
+      break;
+    }
+    case "restore_entry": {
+      const entry = findEntry(next, command.payload.id);
+      if (entry.deletedAtMillis) throw new Error("Deleted finance entry cannot be restored from archive.");
+      entry.archivedAtMillis = undefined;
+      entry.updatedAtMillis = nowMillis;
+      entry.actor = command.actor;
+      entityId = entry.id;
+      affectedCount = 1;
+      break;
+    }
+    case "archive_before": {
+      const beforeMillis = timestamp(command.payload.beforeMillis, "Archive cutoff");
+      let count = 0;
+      for (const entry of next.entries) {
+        if (!entry.deletedAtMillis && !entry.archivedAtMillis && entry.createdAtMillis < beforeMillis) {
+          entry.archivedAtMillis = nowMillis;
+          entry.updatedAtMillis = nowMillis;
+          entry.actor = command.actor;
+          count += 1;
+        }
+      }
+      affectedCount = count;
+      break;
+    }
+    case "delete_entry": {
+      const entry = findEntry(next, command.payload.id);
+      entry.deletedAtMillis = nowMillis;
+      entry.archivedAtMillis = undefined;
+      entry.updatedAtMillis = nowMillis;
+      entry.actor = command.actor;
+      entityId = entry.id;
+      affectedCount = 1;
       break;
     }
     case "add_category": {
@@ -322,7 +393,7 @@ export function applyFinanceCommand(current: FinanceLedger, command: FinanceComm
   next.entries = sortedEntries(next.entries);
   next.categories = sortedCategories(next.categories);
   next.updatedAt = now.toISOString();
-  return { ledger: next, changed: true, entityId };
+  return { ledger: next, changed: true, entityId, affectedCount };
 }
 
 export interface FinanceSummary {
@@ -331,12 +402,30 @@ export interface FinanceSummary {
   byCategory: Array<{ category: string; currencyCode: FinanceCurrency; expenseCents: number; incomeCents: number }>;
 }
 
-export function activeFinanceEntries(ledger: FinanceLedger): FinanceEntry[] {
-  return ledger.entries.filter((entry) => !entry.deletedAtMillis);
+export function financeEntriesByStatus(ledger: FinanceLedger, status: FinanceEntryStatus = "active"): FinanceEntry[] {
+  const notDeleted = ledger.entries.filter((entry) => !entry.deletedAtMillis);
+  if (status === "archived") return notDeleted.filter((entry) => Boolean(entry.archivedAtMillis));
+  if (status === "all") return notDeleted;
+  return notDeleted.filter((entry) => !entry.archivedAtMillis);
 }
 
-export function financeSummary(ledger: FinanceLedger, fromMillis?: number, toMillis?: number): FinanceSummary {
-  const entries = activeFinanceEntries(ledger).filter((entry) => (fromMillis === undefined || entry.createdAtMillis >= fromMillis) && (toMillis === undefined || entry.createdAtMillis < toMillis));
+export function activeFinanceEntries(ledger: FinanceLedger): FinanceEntry[] {
+  return financeEntriesByStatus(ledger, "active");
+}
+
+export function archivedFinanceEntries(ledger: FinanceLedger): FinanceEntry[] {
+  return financeEntriesByStatus(ledger, "archived");
+}
+
+export function financeSummary(
+  ledger: FinanceLedger,
+  fromMillis?: number,
+  toMillis?: number,
+  status: FinanceEntryStatus = "active",
+): FinanceSummary {
+  const entries = financeEntriesByStatus(ledger, status).filter((entry) =>
+    (fromMillis === undefined || entry.createdAtMillis >= fromMillis)
+    && (toMillis === undefined || entry.createdAtMillis < toMillis));
   const currency = new Map<FinanceCurrency, { expenseCents: number; incomeCents: number }>();
   const category = new Map<string, { category: string; currencyCode: FinanceCurrency; expenseCents: number; incomeCents: number }>();
   for (const entry of entries) {
@@ -353,7 +442,10 @@ export function financeSummary(ledger: FinanceLedger, fromMillis?: number, toMil
   }
   return {
     entryCount: entries.length,
-    byCurrency: [...currency.entries()].map(([currencyCode, totals]) => ({ currencyCode, ...totals, balanceCents: totals.incomeCents - totals.expenseCents })).sort((a, b) => a.currencyCode.localeCompare(b.currencyCode)),
-    byCategory: [...category.values()].sort((a, b) => b.expenseCents - a.expenseCents || b.incomeCents - a.incomeCents || a.category.localeCompare(b.category)),
+    byCurrency: [...currency.entries()]
+      .map(([currencyCode, totals]) => ({ currencyCode, ...totals, balanceCents: totals.incomeCents - totals.expenseCents }))
+      .sort((a, b) => a.currencyCode.localeCompare(b.currencyCode)),
+    byCategory: [...category.values()]
+      .sort((a, b) => b.expenseCents - a.expenseCents || b.incomeCents - a.incomeCents || a.category.localeCompare(b.category)),
   };
 }
