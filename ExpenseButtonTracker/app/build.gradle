@@ -14,6 +14,20 @@ android {
         versionName '2.1.0'
     }
 
+    flavorDimensions 'distribution'
+    productFlavors {
+        upgrade {
+            dimension 'distribution'
+            manifestPlaceholders = [appLabel: 'ManageMe']
+        }
+        migration {
+            dimension 'distribution'
+            applicationIdSuffix '.synced'
+            versionNameSuffix '-migration'
+            manifestPlaceholders = [appLabel: 'ManageMe Sync']
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
