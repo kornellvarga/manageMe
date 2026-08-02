@@ -36,14 +36,17 @@ export async function syncFinanceToGitHub(env: Env, snapshot: FinanceSnapshot): 
   throw new Error("Finance data changed repeatedly; retry synchronization.");
 }
 
-export async function applyFinanceCommandToGitHub(env: Env, command: FinanceCommand): Promise<{ ledger: FinanceLedger; entityId?: string }> {
+export async function applyFinanceCommandToGitHub(
+  env: Env,
+  command: FinanceCommand,
+): Promise<{ ledger: FinanceLedger; entityId?: string; affectedCount?: number }> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const current = await readFinanceLedger(env);
     const result = applyFinanceCommand(current.ledger, command);
-    if (!result.changed) return { ledger: result.ledger, entityId: result.entityId };
+    if (!result.changed) return { ledger: result.ledger, entityId: result.entityId, affectedCount: result.affectedCount };
     try {
       await writeFinanceLedger(env, result.ledger, `${command.type.replaceAll("_", " ")} ${result.entityId || "finance"}`, current.sha);
-      return { ledger: result.ledger, entityId: result.entityId };
+      return { ledger: result.ledger, entityId: result.entityId, affectedCount: result.affectedCount };
     } catch (error) {
       if (!(error instanceof GitHubConflictError) || attempt === 2) throw error;
     }

@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.data.FinanceArchiveStore;
 import com.example.expensebuttontracker.util.SettingsStore;
 
 import org.json.JSONObject;
@@ -95,7 +96,7 @@ public final class FinanceSyncClient {
         }
 
         ExpenseDbHelper db = new ExpenseDbHelper(context);
-        String payload = db.buildFinanceSyncPayload();
+        String payload = FinanceArchiveStore.decorateSyncPayload(db.buildFinanceSyncPayload());
         JSONObject response = requestJson(
                 apiUrl + "/v1/finance/sync",
                 "POST",
@@ -104,6 +105,7 @@ public final class FinanceSyncClient {
                 tokens.accessToken);
         JSONObject ledger = response.getJSONObject("ledger");
         db.applyFinanceLedger(ledger.toString());
+        FinanceArchiveStore.applyRemoteLedger(context, ledger.toString());
         SettingsStore.markFinanceSyncSuccess(context, ledger.optLong("revision", 0L));
     }
 
@@ -138,7 +140,7 @@ public final class FinanceSyncClient {
             connection.setDoInput(true);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Content-Type", contentType);
-            connection.setRequestProperty("User-Agent", "ManageMeAndroid/2.1");
+            connection.setRequestProperty("User-Agent", "ManageMeAndroid/2.2");
             if (bearer != null && !bearer.isEmpty()) {
                 connection.setRequestProperty("Authorization", "Bearer " + bearer);
             }

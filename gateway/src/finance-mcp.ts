@@ -1,6 +1,12 @@
-import { activeFinanceEntries, financeSummary, normalizeFinanceCurrency, normalizeFinanceType } from "./finance";
+import {
+  financeEntriesByStatus,
+  financeSummary,
+  normalizeFinanceCurrency,
+  normalizeFinanceStatus,
+  normalizeFinanceType,
+} from "./finance";
 import { applyFinanceCommandToGitHub, readFinanceLedger } from "./finance-store";
-import type { FinanceCommand, FinanceEntry } from "./finance";
+import type { FinanceCommand, FinanceEntry, FinanceEntryStatus } from "./finance";
 import type { AuthContext, Env } from "./types";
 
 export interface FinanceToolDefinition {
@@ -18,6 +24,9 @@ const FINANCE_TOOL_NAMES = new Set([
   "finance_list_categories",
   "finance_add_entry",
   "finance_update_entry",
+  "finance_archive_entry",
+  "finance_restore_entry",
+  "finance_archive_before",
   "finance_delete_entry",
   "finance_add_category",
   "finance_delete_category",
@@ -43,9 +52,17 @@ function tool(
   };
 }
 
+const statusProperty = {
+  type: "string",
+  enum: ["active", "archived", "all"],
+  default: "active",
+  description: "Active excludes archived entries. All includes active and archived entries, but never deleted entries.",
+};
+
 export function financeToolsFor(): FinanceToolDefinition[] {
   return [
-    tool("finance_list_entries", "List money entries", "Read Kornel's synchronized expense and income entries. Use filters when he asks about a period, category, currency, or entry type.", {
+    tool("finance_list_entries", "List money entries", "Read Kornel's synchronized expense and income entries. Current queries exclude archived entries unless status is archived or all.", {
+      status: statusProperty,
       type: { type: "string", enum: ["EXPENSE", "INCOME"] },
       category: { type: "string", description: "Case-insensitive category filter." },
       currency: { type: "string", enum: ["HUF", "EUR", "TRY", "TL"] },
@@ -53,7 +70,8 @@ export function financeToolsFor(): FinanceToolDefinition[] {
       to: { type: "string", description: "Exclusive ISO date or date-time. A date means the start of the following day." },
       limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
     }, [], true, true),
-    tool("finance_summary", "Summarize finances", "Summarize synchronized income, expenses, balances, and categories while keeping HUF, EUR, and TRY separate. No invented exchange rate is used.", {
+    tool("finance_summary", "Summarize finances", "Summarize synchronized income, expenses, balances, and categories while keeping HUF, EUR, and TRY separate. Archived entries are excluded by default.", {
+      status: statusProperty,
       from: { type: "string", description: "Inclusive ISO date or date-time." },
       to: { type: "string", description: "Exclusive ISO date or date-time. A date means the start of the following day." },
     }, [], true, true),
@@ -69,7 +87,7 @@ export function financeToolsFor(): FinanceToolDefinition[] {
       occurred_at: { type: "string", format: "date-time", description: "Optional original transaction time. Omit for now." },
       request_id: { type: "string", description: "Optional stable idempotency key for retries." },
     }, ["type", "category", "amount", "currency"], false),
-    tool("finance_update_entry", "Update a money entry", "Correct an existing synchronized expense or income entry. Change only fields Kornel explicitly supplies.", {
+    tool("finance_update_entry", "Update a money entry", "Correct an existing synchronized expense or income entry. Archived entries may be corrected without restoring them.", {
       entry_id: { type: "string" },
       type: { type: "string", enum: ["EXPENSE", "INCOME"] },
       category: { type: "string", minLength: 1, maxLength: 120 },
@@ -79,7 +97,19 @@ export function financeToolsFor(): FinanceToolDefinition[] {
       occurred_at: { type: "string", format: "date-time" },
       request_id: { type: "string", description: "Optional stable idempotency key for retries." },
     }, ["entry_id"], false, true),
-    tool("finance_delete_entry", "Delete a money entry", "Delete one specific synchronized money entry only after Kornel clearly asks to remove it.", {
+    tool("finance_archive_entry", "Archive a money entry", "Archive one money entry. It remains synchronized and restorable, but stops affecting current balances and statistics.", {
+      entry_id: { type: "string" },
+      request_id: { type: "string", description: "Optional stable idempotency key for retries." },
+    }, ["entry_id"], false, true),
+    tool("finance_restore_entry", "Restore an archived money entry", "Restore one archived money entry so it affects current balances and statistics again.", {
+      entry_id: { type: "string" },
+      request_id: { type: "string", description: "Optional stable idempotency key for retries." },
+    }, ["entry_id"], false, true),
+    tool("finance_archive_before", "Archive old money entries", "Archive every active money entry strictly before the supplied date or date-time. Use only when Kornel explicitly gives the cutoff.", {
+      before: { type: "string", description: "Exclusive ISO cutoff. For example, 2026-08-01 archives entries before the start of August 1 in Budapest time." },
+      request_id: { type: "string", description: "Optional stable idempotency key for retries." },
+    }, ["before"], false, true),
+    tool("finance_delete_entry", "Delete a money entry", "Permanently hide one specific synchronized money entry only after Kornel clearly asks to delete rather than archive it.", {
       entry_id: { type: "string" },
       request_id: { type: "string", description: "Optional stable idempotency key for retries." },
     }, ["entry_id"], false, true, true),
@@ -137,6 +167,12 @@ function dateMillis(value: unknown, endBoundary = false): number | undefined {
   return dateOnly && endBoundary ? parsed + 86_400_000 : parsed;
 }
 
+function requiredDateMillis(value: unknown, label: string): number {
+  const parsed = dateMillis(value);
+  if (parsed === undefined) throw new Error(`${label} is required.`);
+  return parsed;
+}
+
 function safeLimit(value: unknown): number {
   const parsed = Number(value || 100);
   return Number.isInteger(parsed) ? Math.max(1, Math.min(parsed, 500)) : 100;
@@ -160,19 +196,25 @@ function formatAmount(cents: number, currency: string): string {
   return `${new Intl.NumberFormat("en", { minimumFractionDigits: Number.isInteger(amount) ? 0 : 2, maximumFractionDigits: 2 }).format(amount)} ${currency === "TRY" ? "TL" : currency}`;
 }
 
+function entryStatus(args: Record<string, unknown>): FinanceEntryStatus {
+  return normalizeFinanceStatus(args.status);
+}
+
 export async function callFinanceTool(name: string, args: Record<string, unknown>, env: Env, auth: AuthContext): Promise<Record<string, unknown>> {
   if (name === "finance_list_entries") {
     const ledger = (await readFinanceLedger(env)).ledger;
-    const entries = filterEntries(activeFinanceEntries(ledger), args).slice(0, safeLimit(args.limit));
-    return resultText(`Found ${entries.length} money entr${entries.length === 1 ? "y" : "ies"}.`, { entries, revision: ledger.revision });
+    const status = entryStatus(args);
+    const entries = filterEntries(financeEntriesByStatus(ledger, status), args).slice(0, safeLimit(args.limit));
+    return resultText(`Found ${entries.length} ${status === "all" ? "active or archived" : status} money entr${entries.length === 1 ? "y" : "ies"}.`, { status, entries, revision: ledger.revision });
   }
   if (name === "finance_summary") {
     const ledger = (await readFinanceLedger(env)).ledger;
     const from = dateMillis(args.from);
     const to = dateMillis(args.to, true);
-    const summary = financeSummary(ledger, from, to);
+    const status = entryStatus(args);
+    const summary = financeSummary(ledger, from, to, status);
     const totals = summary.byCurrency.map((item) => `${formatAmount(item.expenseCents, item.currencyCode)} spent / ${formatAmount(item.incomeCents, item.currencyCode)} income`).join("; ");
-    return resultText(summary.entryCount ? `Finance summary for ${summary.entryCount} entries: ${totals}.` : "No synchronized money entries matched that period.", { ...summary, fromMillis: from, toMillis: to, revision: ledger.revision });
+    return resultText(summary.entryCount ? `Finance summary for ${summary.entryCount} ${status} entries: ${totals}.` : `No ${status} money entries matched that period.`, { ...summary, status, fromMillis: from, toMillis: to, revision: ledger.revision });
   }
   if (name === "finance_list_categories") {
     const ledger = (await readFinanceLedger(env)).ledger;
@@ -206,6 +248,22 @@ export async function callFinanceTool(name: string, args: Record<string, unknown
     const result = await applyFinanceCommandToGitHub(env, command("update_entry", args, payload));
     const entry = result.ledger.entries.find((item) => item.id === result.entityId);
     return resultText(`Updated money entry ${entry?.name || String(args.entry_id)}.`, { entry, revision: result.ledger.revision });
+  }
+  if (name === "finance_archive_entry") {
+    const result = await applyFinanceCommandToGitHub(env, command("archive_entry", args, { id: args.entry_id }));
+    const entry = result.ledger.entries.find((item) => item.id === result.entityId);
+    return resultText(`Archived money entry ${entry?.name || String(args.entry_id)}. It no longer affects current totals.`, { entry, revision: result.ledger.revision });
+  }
+  if (name === "finance_restore_entry") {
+    const result = await applyFinanceCommandToGitHub(env, command("restore_entry", args, { id: args.entry_id }));
+    const entry = result.ledger.entries.find((item) => item.id === result.entityId);
+    return resultText(`Restored money entry ${entry?.name || String(args.entry_id)} to current totals.`, { entry, revision: result.ledger.revision });
+  }
+  if (name === "finance_archive_before") {
+    const beforeMillis = requiredDateMillis(args.before, "Archive cutoff");
+    const result = await applyFinanceCommandToGitHub(env, command("archive_before", args, { beforeMillis }));
+    const count = result.affectedCount || 0;
+    return resultText(`Archived ${count} active money entr${count === 1 ? "y" : "ies"} before ${String(args.before)}.`, { affectedCount: count, beforeMillis, revision: result.ledger.revision });
   }
   if (name === "finance_delete_entry") {
     const result = await applyFinanceCommandToGitHub(env, command("delete_entry", args, { id: args.entry_id }));
