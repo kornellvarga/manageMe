@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manageme.local/contracts/finance-ledger.schema.json",
+  "title": "ManageMe finance ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "revision", "profileId", "entries", "categories", "appliedRequestIds", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "profileId": { "const": "kornel" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    },
+    "categories": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "appliedRequestIds": {
+      "type": "array",
+      "maxItems": 2000,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 96,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{2,95}$"
+    },
+    "millis": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8640000000000000
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "category", "amountCents", "currencyCode", "name", "createdAtMillis", "updatedAtMillis", "actor"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["EXPENSE", "INCOME"] },
+        "category": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "amountCents": { "type": "integer", "minimum": 1 },
+        "currencyCode": { "enum": ["HUF", "EUR", "TRY"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "createdAtMillis": { "$ref": "#/$defs/millis" },
+        "updatedAtMillis": { "$ref": "#/$defs/millis" },
+        "deletedAtMillis": { "$ref": "#/$defs/millis" },
+        "actor": { "enum": ["kornel", "assistant", "web", "android", "system"] }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "name", "sortOrder", "updatedAtMillis"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["EXPENSE", "INCOME"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "sortOrder": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "updatedAtMillis": { "$ref": "#/$defs/millis" },
+        "deletedAtMillis": { "$ref": "#/$defs/millis" }
+      }
+    }
+  }
+}

@@ -11,6 +11,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -25,24 +26,36 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.example.expensebuttontracker.R;
+import com.example.expensebuttontracker.sync.FinanceSyncClient;
+import com.example.expensebuttontracker.util.SettingsStore;
 
 /**
  * Thin Android home for the same ManageMe web client used on GitHub Pages.
  * OAuth tokens stay inside this app's WebView storage; no GitHub credential is
- * compiled into the APK.
+ * compiled into the APK. A narrowly scoped JavaScript bridge copies only the
+ * ManageMe refresh token into private app storage so the native money tracker
+ * can synchronize through the same authenticated gateway.
  */
 public final class ManageMeActivity extends Activity {
     private WebView webView;
     private ProgressBar progress;
     private LinearLayout unavailable;
     private boolean pageLoaded;
+    private volatile boolean trustedManageMePage;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         buildUi();
         configureWebView();
+        trustedManageMePage = isTrustedManageMeUrl(getString(R.string.manage_me_url));
         webView.loadUrl(getString(R.string.manage_me_url));
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        FinanceSyncClient.syncAsync(this);
     }
 
     private void buildUi() {
@@ -126,12 +139,13 @@ public final class ManageMeActivity extends Activity {
         settings.setAllowContentAccess(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " ManageMeAndroid/1");
+        settings.setUserAgentString(settings.getUserAgentString() + " ManageMeAndroid/2");
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
         cookieManager.setAcceptThirdPartyCookies(webView, true);
 
+        webView.addJavascriptInterface(new ManageMeAndroidBridge(), "ManageMeAndroid");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
@@ -142,13 +156,18 @@ public final class ManageMeActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                trustedManageMePage = isTrustedManageMeUrl(request.getUrl().toString());
                 return openExternalScheme(request.getUrl());
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                pageLoaded = true;
-                unavailable.setVisibility(View.GONE);
+                trustedManageMePage = isTrustedManageMeUrl(url);
+                if (trustedManageMePage) {
+                    pageLoaded = true;
+                    unavailable.setVisibility(View.GONE);
+                    FinanceSyncClient.syncAsync(ManageMeActivity.this);
+                }
             }
 
             @Override
@@ -156,6 +175,27 @@ public final class ManageMeActivity extends Activity {
                 if (request.isForMainFrame() && !pageLoaded) unavailable.setVisibility(View.VISIBLE);
             }
         });
+    }
+
+    private boolean isTrustedManageMeUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            Uri expected = Uri.parse(getString(R.string.manage_me_url));
+            Uri actual = Uri.parse(value);
+            if (!"https".equalsIgnoreCase(actual.getScheme())) {
+                return false;
+            }
+            if (!expected.getHost().equalsIgnoreCase(actual.getHost())) {
+                return false;
+            }
+            String expectedPath = expected.getPath() == null ? "/" : expected.getPath();
+            String actualPath = actual.getPath() == null ? "/" : actual.getPath();
+            return actualPath.equals(expectedPath) || actualPath.startsWith(expectedPath);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private boolean openExternalScheme(Uri uri) {
@@ -169,6 +209,33 @@ public final class ManageMeActivity extends Activity {
         return true;
     }
 
+    private final class ManageMeAndroidBridge {
+        @JavascriptInterface
+        public void storeOAuthConfig(String apiUrl, String refreshToken) {
+            if (!trustedManageMePage) {
+                return;
+            }
+            String expected = SettingsStore.normalizeApiUrl(getString(R.string.manage_me_api_url));
+            String actual = SettingsStore.normalizeApiUrl(apiUrl);
+            if (expected.isEmpty() || !expected.equals(actual)) {
+                return;
+            }
+            try {
+                SettingsStore.setFinanceSyncCredentials(ManageMeActivity.this, actual, refreshToken);
+                FinanceSyncClient.syncAsync(ManageMeActivity.this);
+            } catch (IllegalArgumentException ignored) {
+                // Ignore malformed bridge calls without exposing credentials or app state.
+            }
+        }
+
+        @JavascriptInterface
+        public void requestFinanceSync() {
+            if (trustedManageMePage) {
+                FinanceSyncClient.syncAsync(ManageMeActivity.this);
+            }
+        }
+    }
+
     @Override
     public void onBackPressed() {
         if (webView.canGoBack()) webView.goBack();
@@ -178,6 +245,7 @@ public final class ManageMeActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (webView != null) {
+            webView.removeJavascriptInterface("ManageMeAndroid");
             webView.stopLoading();
             webView.destroy();
         }

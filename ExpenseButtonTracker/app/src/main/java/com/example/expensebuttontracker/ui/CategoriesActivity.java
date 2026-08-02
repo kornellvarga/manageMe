@@ -22,6 +22,7 @@ import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.Category;
 import com.example.expensebuttontracker.data.EntryType;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.sync.FinanceSyncClient;
 
 import java.util.List;
 
@@ -125,6 +126,7 @@ public class CategoriesActivity extends Activity {
         if (added) {
             categoryInput.setText("");
             refreshList();
+            FinanceSyncClient.syncAsync(this);
         } else {
             Toast.makeText(this, "Enter a new unique category name.", Toast.LENGTH_LONG).show();
         }
@@ -192,6 +194,7 @@ public class CategoriesActivity extends Activity {
                 .setPositiveButton("Delete", (dialog, which) -> {
                     db.deleteCategory(category.id);
                     refreshList();
+                    FinanceSyncClient.syncAsync(this);
                 })
                 .show();
     }

@@ -1,18 +1,18 @@
 package com.example.expensebuttontracker.ui;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
-import android.content.Context;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -25,6 +25,7 @@ import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.Category;
 import com.example.expensebuttontracker.data.EntryType;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.MoneyUtils;
 import com.example.expensebuttontracker.util.SettingsStore;
@@ -246,6 +247,7 @@ public class QuickAddActivity extends Activity {
             SettingsStore.setEntryCurrency(this, selectedCurrency);
             Toast.makeText(this, "Saved " + MoneyUtils.formatCents(cents, selectedCurrency) + " as " + selectedCategory, Toast.LENGTH_SHORT).show();
             setResult(RESULT_OK, new Intent().putExtra("entry_id", id));
+            FinanceSyncClient.syncAsync(this);
             finish();
         } catch (IllegalArgumentException ex) {
             Toast.makeText(this, ex.getMessage(), Toast.LENGTH_LONG).show();

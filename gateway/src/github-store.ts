@@ -11,6 +11,11 @@ interface GitHubFile {
   sha?: string;
 }
 
+export interface GitHubJsonFile<T> {
+  value: T;
+  sha?: string;
+}
+
 let cachedInstallationToken: InstallationToken | undefined;
 
 function bytesBase64(bytes: Uint8Array): string {
@@ -113,9 +118,8 @@ function repositoryParts(env: Env): [string, string] {
   return [parts[0], parts[1]];
 }
 
-function contentUrl(env: Env): string {
+function contentUrl(env: Env, path: string): string {
   const [owner, repository] = repositoryParts(env);
-  const path = env.GITHUB_DATA_PATH || "state.json";
   return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
@@ -128,37 +132,51 @@ async function githubHeaders(env: Env): Promise<Record<string, string>> {
   };
 }
 
-export async function readState(env: Env): Promise<GitHubFile> {
-  const url = new URL(contentUrl(env));
+export async function readJsonDocument<T>(
+  env: Env,
+  path: string,
+  validator: (value: unknown) => value is T,
+  createEmpty: () => T,
+): Promise<GitHubJsonFile<T>> {
+  const url = new URL(contentUrl(env, path));
   url.searchParams.set("ref", env.GITHUB_DATA_BRANCH || "main");
   const response = await fetch(url, { headers: await githubHeaders(env) });
-  if (response.status === 404) return { state: createEmptyState() };
-  if (!response.ok) throw new Error(`GitHub state read failed (${response.status}).`);
+  if (response.status === 404) return { value: createEmpty() };
+  if (!response.ok) throw new Error(`GitHub data read failed (${response.status}).`);
   const body = (await response.json()) as { content?: string; sha?: string; type?: string };
-  if (body.type !== "file" || !body.content || !body.sha) throw new Error("GitHub state path is not a readable file.");
+  if (body.type !== "file" || !body.content || !body.sha) throw new Error("GitHub data path is not a readable file.");
   const parsed: unknown = JSON.parse(decodeUtf8Base64(body.content));
-  if (!isManageMeState(parsed)) throw new Error("Private repository contains an unsupported ManageMe state.");
-  return { state: parsed, sha: body.sha };
+  if (!validator(parsed)) throw new Error(`Private repository contains unsupported data at ${path}.`);
+  return { value: parsed, sha: body.sha };
 }
 
-async function writeState(env: Env, state: ManageMeState, summary: string, sha?: string): Promise<void> {
+export class GitHubConflictError extends Error {}
+
+export async function writeJsonDocument<T>(env: Env, path: string, value: T, summary: string, sha?: string): Promise<void> {
   const body: Record<string, unknown> = {
     message: `ManageMe: ${summary}`.slice(0, 200),
-    content: utf8Base64(`${JSON.stringify(state, null, 2)}\n`),
+    content: utf8Base64(`${JSON.stringify(value, null, 2)}\n`),
     branch: env.GITHUB_DATA_BRANCH || "main",
     committer: { name: "ManageMe", email: "manageme-bot@users.noreply.github.com" },
   };
   if (sha) body.sha = sha;
-  const response = await fetch(contentUrl(env), {
+  const response = await fetch(contentUrl(env, path), {
     method: "PUT",
     headers: { ...(await githubHeaders(env)), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (response.status === 409 || response.status === 422) throw new GitHubConflictError();
-  if (!response.ok) throw new Error(`GitHub state write failed (${response.status}).`);
+  if (!response.ok) throw new Error(`GitHub data write failed (${response.status}).`);
 }
 
-class GitHubConflictError extends Error {}
+export async function readState(env: Env): Promise<GitHubFile> {
+  const result = await readJsonDocument(env, env.GITHUB_DATA_PATH || "state.json", isManageMeState, createEmptyState);
+  return { state: result.value, sha: result.sha };
+}
+
+async function writeState(env: Env, state: ManageMeState, summary: string, sha?: string): Promise<void> {
+  return writeJsonDocument(env, env.GITHUB_DATA_PATH || "state.json", state, summary, sha);
+}
 
 export async function applyCommandToGitHub(env: Env, command: ManageMeCommand): Promise<ManageMeState> {
   for (let attempt = 0; attempt < 3; attempt += 1) {

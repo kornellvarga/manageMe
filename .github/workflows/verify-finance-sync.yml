@@ -1,0 +1,65 @@
+name: Verify finance sync
+
+on:
+  push:
+    branches: [feature/finance-sync]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - name: Install gateway dependencies
+        working-directory: gateway
+        run: npm ci
+      - name: Type-check gateway
+        working-directory: gateway
+        run: npm run check
+      - name: Test gateway
+        working-directory: gateway
+        run: npm test
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Lint and build web app
+        working-directory: web
+        env:
+          NEXT_PUBLIC_BASE_PATH: /manageMe
+          NEXT_PUBLIC_SITE_URL: https://kornellvarga.github.io/manageMe/
+          NEXT_PUBLIC_MANAGEME_API_URL: https://manageme-gateway.kornel-718.workers.dev
+        run: npm run check
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build Android APK
+        working-directory: ExpenseButtonTracker
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon

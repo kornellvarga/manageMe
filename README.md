@@ -9,15 +9,17 @@ The default loop is deliberately small:
 3. Do one, finish it, or reschedule it intentionally.
 4. Let the assistant read the same private state and help choose the next step.
 
+The Android APK also contains the native Money tracker. Its existing quick-add, currencies, categories, widget, lock-screen surfaces, summaries, statistics, exchange rates, and CSV export remain local-first. After ManageMe is connected with GitHub in the APK, money data synchronizes to a separate private `finance.json` ledger and becomes available through validated assistant tools.
+
 ## What is here
 
 - `web/` — responsive offline-capable GitHub Pages app.
-- `gateway/` — authenticated Cloudflare Worker exposing REST and MCP.
-- `contracts/` — versioned state and command contracts shared by every client.
-- `ExpenseButtonTracker/` — Android APK. ManageMe is now its home screen; the existing money tracker remains available inside it.
+- `gateway/` — authenticated Cloudflare Worker exposing REST and MCP for both personal-management and finance data.
+- `contracts/` — versioned state, command, and finance contracts shared by every client.
+- `ExpenseButtonTracker/` — Android APK. ManageMe is its home screen; the native money tracker remains available inside it and synchronizes without blocking offline capture.
 - `docs/` — deployment, data model, and assistant setup.
 
-Personal state is never placed in the public Pages repository. The web app and APK authenticate through the gateway; the gateway alone can update `state.json` in a separate private GitHub repository.
+Personal state is never placed in the public Pages repository. The web app and APK authenticate through the gateway; the gateway alone can update `state.json` and `finance.json` in a separate private GitHub repository.
 
 - Live app: <https://kornellvarga.github.io/manageMe/>
 - Gateway health: <https://manageme-gateway.kornel-718.workers.dev/health>
