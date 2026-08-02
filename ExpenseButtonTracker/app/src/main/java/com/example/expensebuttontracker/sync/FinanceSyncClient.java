@@ -36,6 +36,7 @@ public final class FinanceSyncClient {
     private static final int READ_TIMEOUT_MILLIS = 25_000;
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
+    private static final AtomicBoolean PENDING = new AtomicBoolean(false);
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     public interface Callback {
@@ -56,7 +57,8 @@ public final class FinanceSyncClient {
             return;
         }
         if (!RUNNING.compareAndSet(false, true)) {
-            deliver(callback, false, "Finance sync is already running.");
+            PENDING.set(true);
+            deliver(callback, false, "Finance sync queued behind the current sync.");
             return;
         }
 
@@ -74,6 +76,9 @@ public final class FinanceSyncClient {
                 RUNNING.set(false);
             }
             deliver(callback, synced, message);
+            if (PENDING.getAndSet(false)) {
+                syncAsync(appContext);
+            }
         });
     }
 
@@ -126,37 +131,40 @@ public final class FinanceSyncClient {
             String body,
             String bearer) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setRequestMethod(method);
-        connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-        connection.setReadTimeout(READ_TIMEOUT_MILLIS);
-        connection.setDoInput(true);
-        connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("Content-Type", contentType);
-        connection.setRequestProperty("User-Agent", "ManageMeAndroid/2.1");
-        if (bearer != null && !bearer.isEmpty()) {
-            connection.setRequestProperty("Authorization", "Bearer " + bearer);
-        }
+        try {
+            connection.setRequestMethod(method);
+            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            connection.setDoInput(true);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Content-Type", contentType);
+            connection.setRequestProperty("User-Agent", "ManageMeAndroid/2.1");
+            if (bearer != null && !bearer.isEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer " + bearer);
+            }
 
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        connection.setDoOutput(true);
-        connection.setFixedLengthStreamingMode(bytes.length);
-        try (OutputStream stream = connection.getOutputStream()) {
-            stream.write(bytes);
-        }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode(bytes.length);
+            try (OutputStream stream = connection.getOutputStream()) {
+                stream.write(bytes);
+            }
 
-        int status = connection.getResponseCode();
-        String responseBody = readBody(status >= 200 && status < 300
-                ? connection.getInputStream()
-                : connection.getErrorStream());
-        connection.disconnect();
+            int status = connection.getResponseCode();
+            String responseBody = readBody(status >= 200 && status < 300
+                    ? connection.getInputStream()
+                    : connection.getErrorStream());
 
-        JSONObject json = responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
-        if (status < 200 || status >= 300) {
-            String detail = json.optString("error_description",
-                    json.optString("message", json.optString("error", "Finance sync failed.")));
-            throw new IOException(detail + " (HTTP " + status + ")");
+            JSONObject json = responseBody.isEmpty() ? new JSONObject() : new JSONObject(responseBody);
+            if (status < 200 || status >= 300) {
+                String detail = json.optString("error_description",
+                        json.optString("message", json.optString("error", "Finance sync failed.")));
+                throw new IOException(detail + " (HTTP " + status + ")");
+            }
+            return json;
+        } finally {
+            connection.disconnect();
         }
-        return json;
     }
 
     private static String readBody(InputStream stream) throws IOException {
