@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manageme.local/contracts/finance-command.schema.json",
+  "title": "ManageMe finance command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestId", "profileId", "actor", "type", "payload"],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 96,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{2,95}$"
+    },
+    "profileId": { "const": "kornel" },
+    "actor": { "enum": ["kornel", "assistant", "web", "android"] },
+    "type": {
+      "enum": ["add_entry", "update_entry", "delete_entry", "add_category", "delete_category"]
+    },
+    "payload": { "type": "object" }
+  }
+}
