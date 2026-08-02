@@ -23,6 +23,15 @@ interface PendingPkce {
   redirectUri: string;
 }
 
+declare global {
+  interface Window {
+    ManageMeAndroid?: {
+      storeOAuthConfig(apiUrl: string, refreshToken: string): void;
+      requestFinanceSync?(): void;
+    };
+  }
+}
+
 export class AuthRequiredError extends Error {
   constructor(message = "Connect securely with GitHub to use live sync.") {
     super(message);
@@ -62,12 +71,24 @@ function readAccess(): StoredAccess | null {
   }
 }
 
+function bridgeFinanceConnection(): void {
+  if (typeof window === "undefined" || !API_URL) return;
+  const refreshToken = localStorage.getItem(REFRESH_KEY) || "";
+  if (!refreshToken) return;
+  try {
+    window.ManageMeAndroid?.storeOAuthConfig(API_URL, refreshToken);
+  } catch {
+    // Browser clients and older APKs intentionally ignore the native bridge.
+  }
+}
+
 function storeTokens(tokens: TokenResponse): void {
   sessionStorage.setItem(ACCESS_KEY, JSON.stringify({
     token: tokens.access_token,
     expiresAt: Date.now() + Math.max(60, tokens.expires_in || 3600) * 1000,
   } satisfies StoredAccess));
   if (tokens.refresh_token) localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
+  bridgeFinanceConnection();
 }
 
 async function exchange(parameters: URLSearchParams): Promise<TokenResponse> {
@@ -142,7 +163,11 @@ export async function finishLoginIfPresent(): Promise<boolean> {
   if (!hasRemoteApi() || typeof window === "undefined") return false;
   const url = new URL(window.location.href);
   const code = url.searchParams.get("code");
-  if (!code) return isConnected();
+  if (!code) {
+    const connected = isConnected();
+    if (connected) bridgeFinanceConnection();
+    return connected;
+  }
 
   const raw = sessionStorage.getItem(PKCE_KEY);
   sessionStorage.removeItem(PKCE_KEY);
