@@ -33,13 +33,15 @@ import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.CurrencyTotal;
 import com.example.expensebuttontracker.data.EntryType;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.data.FinanceArchiveStore;
 import com.example.expensebuttontracker.data.MoneyEntry;
 import com.example.expensebuttontracker.data.Totals;
 import com.example.expensebuttontracker.notification.LockScreenQuickAddNotification;
+import com.example.expensebuttontracker.qs.ExpenseTileService;
+import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.ExchangeRateStore;
 import com.example.expensebuttontracker.util.ExchangeRates;
-import com.example.expensebuttontracker.qs.ExpenseTileService;
 import com.example.expensebuttontracker.util.MoneyUtils;
 import com.example.expensebuttontracker.util.SettingsStore;
 import com.example.expensebuttontracker.widget.ExpenseQuickAddWidget;
@@ -61,6 +63,7 @@ public class MainActivity extends Activity {
     private TextView incomeText;
     private TextView expenseText;
     private TextView rateStatusText;
+    private TextView syncStatusText;
     private LinearLayout displayCurrencyRow;
     private LinearLayout recentEntriesContainer;
     private Switch lockScreenSwitch;
@@ -89,6 +92,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refreshDashboard();
+        syncNow(false);
     }
 
     private void buildUi() {
@@ -118,7 +122,7 @@ public class MainActivity extends Activity {
         root.addView(subtitle);
 
         LinearLayout summaryCard = card(R.drawable.rounded_summary_card);
-        TextView balanceLabel = smallCapsLabel("Total balance");
+        TextView balanceLabel = smallCapsLabel("Current balance");
         balanceText = label("$0.00", 32, true);
         balanceText.setPadding(0, dp(4), 0, dp(16));
         summaryCard.addView(balanceLabel);
@@ -133,6 +137,8 @@ public class MainActivity extends Activity {
 
         root.addView(spacer(16));
         root.addView(currencyCard());
+        root.addView(spacer(16));
+        root.addView(syncCard());
 
         TextView actionTitle = label("Actions", 20, true);
         actionTitle.setPadding(0, dp(18), 0, dp(8));
@@ -141,11 +147,12 @@ public class MainActivity extends Activity {
         LinearLayout actionsGrid = new LinearLayout(this);
         actionsGrid.setOrientation(LinearLayout.VERTICAL);
         addGridTile(actionsGrid, actionTile("Quick add", "Expense or income", R.drawable.rounded_income_tile, v -> openQuickAdd()), 0, false);
-        addGridTile(actionsGrid, actionTile("Statistics", "Charts", R.drawable.rounded_tile, v -> startActivity(new Intent(this, StatisticsActivity.class))), 1, false);
+        addGridTile(actionsGrid, actionTile("Statistics", "Current data", R.drawable.rounded_tile, v -> startActivity(new Intent(this, StatisticsActivity.class))), 1, false);
         addGridTile(actionsGrid, actionTile("Categories", "Edit tiles", R.drawable.rounded_tile, v -> startActivity(new Intent(this, CategoriesActivity.class))), 2, false);
         addGridTile(actionsGrid, actionTile("Widget", "Pin to home", R.drawable.rounded_tile, v -> requestPinWidget()), 3, false);
         addGridTile(actionsGrid, actionTile("Quick tile", "Android shortcut", R.drawable.rounded_tile, v -> requestQuickSettingsTile()), 4, false);
-        addGridTile(actionsGrid, actionTile("Export CSV", "Save entries", R.drawable.rounded_tile, v -> exportCsv()), 5, true);
+        addGridTile(actionsGrid, actionTile("Export CSV", "Save current entries", R.drawable.rounded_tile, v -> exportCsv()), 5, false);
+        addGridTile(actionsGrid, actionTile("Archive", "Old entries and bulk archive", R.drawable.rounded_tile, v -> startActivity(new Intent(this, ArchiveActivity.class))), 6, true);
         root.addView(actionsGrid);
 
         LinearLayout settingsCard = card(R.drawable.rounded_tile);
@@ -182,7 +189,7 @@ public class MainActivity extends Activity {
         root.addView(spacer(16));
         root.addView(settingsCard);
 
-        TextView recentTitle = label("Recent entries", 20, true);
+        TextView recentTitle = label("Recent current entries", 20, true);
         recentTitle.setPadding(0, dp(18), 0, dp(8));
         root.addView(recentTitle);
 
@@ -212,6 +219,19 @@ public class MainActivity extends Activity {
 
         card.addView(secondaryButton("Refresh rates", v -> refreshRates(true)));
         refreshRateStatus();
+        return card;
+    }
+
+    private LinearLayout syncCard() {
+        LinearLayout card = card(R.drawable.rounded_tile);
+        card.addView(label("Finance sync", 18, true));
+        syncStatusText = new TextView(this);
+        syncStatusText.setTextSize(14);
+        syncStatusText.setTextColor(color(R.color.text_secondary));
+        syncStatusText.setPadding(0, dp(6), 0, dp(10));
+        card.addView(syncStatusText);
+        card.addView(secondaryButton("Sync now", v -> syncNow(true)));
+        refreshSyncStatus();
         return card;
     }
 
@@ -260,12 +280,13 @@ public class MainActivity extends Activity {
         incomeText.setText(MoneyUtils.formatCents(totals.incomeCents, displayCurrency));
         expenseText.setText(MoneyUtils.formatCents(totals.expenseCents, displayCurrency));
         refreshRateStatus();
+        refreshSyncStatus();
 
         recentEntriesContainer.removeAllViews();
         List<MoneyEntry> entries = db.getRecentEntries(40);
         if (entries.isEmpty()) {
             TextView empty = new TextView(this);
-            empty.setText("No entries yet. Use Quick add to create your first expense or income item.");
+            empty.setText("No current entries. Add one, or restore something from Archive.");
             empty.setTextSize(15);
             empty.setTextColor(color(R.color.text_secondary));
             empty.setPadding(0, dp(8), 0, dp(8));
@@ -362,6 +383,40 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void refreshSyncStatus() {
+        if (syncStatusText == null) return;
+        if (!SettingsStore.hasFinanceSyncCredentials(this)) {
+            syncStatusText.setText("Not connected. Return to ManageMe and connect GitHub once.");
+            return;
+        }
+        String error = SettingsStore.getFinanceLastSyncError(this);
+        if (!error.isEmpty()) {
+            syncStatusText.setText("Last sync failed: " + error);
+            return;
+        }
+        long lastSync = SettingsStore.getFinanceLastSyncAt(this);
+        long revision = SettingsStore.getFinanceLastRevision(this);
+        if (lastSync <= 0L) {
+            syncStatusText.setText("Connected. Waiting for the first money sync.");
+        } else {
+            String when = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(lastSync));
+            syncStatusText.setText("Synced " + when + " · revision " + revision);
+        }
+    }
+
+    private void syncNow(boolean userRequested) {
+        if (!SettingsStore.hasFinanceSyncCredentials(this)) {
+            refreshSyncStatus();
+            if (userRequested) toast("Open ManageMe and connect GitHub first.");
+            return;
+        }
+        if (syncStatusText != null) syncStatusText.setText("Syncing money data…");
+        FinanceSyncClient.syncAsync(this, (synced, message) -> {
+            refreshDashboard();
+            if (userRequested) toast(message);
+        });
+    }
+
     private View entryRow(MoneyEntry entry) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
@@ -407,20 +462,42 @@ public class MainActivity extends Activity {
         row.addView(details);
 
         row.setOnLongClickListener(v -> {
-            confirmDelete(entry);
+            showEntryActions(entry);
             return true;
         });
         return row;
     }
 
+    private void showEntryActions(MoneyEntry entry) {
+        String[] actions = new String[]{"Archive", "Delete permanently"};
+        new AlertDialog.Builder(this)
+                .setTitle(entry.name)
+                .setMessage("Archive keeps the entry but removes it from current totals. Delete creates a deletion tombstone.")
+                .setItems(actions, (dialog, which) -> {
+                    if (which == 0) archiveEntry(entry);
+                    else confirmDelete(entry);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void archiveEntry(MoneyEntry entry) {
+        if (FinanceArchiveStore.archiveEntry(this, entry.id)) {
+            refreshDashboard();
+            syncNow(false);
+            toast("Archived " + entry.name + ".");
+        }
+    }
+
     private void confirmDelete(MoneyEntry entry) {
         new AlertDialog.Builder(this)
-                .setTitle("Delete entry?")
-                .setMessage(entry.name + " will be removed.")
+                .setTitle("Delete entry permanently?")
+                .setMessage(entry.name + " will be removed from active and archived history. Use Archive instead when you only want it excluded from current totals.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete", (dialog, which) -> {
                     db.deleteEntry(entry.id);
                     refreshDashboard();
+                    syncNow(false);
                 })
                 .show();
     }
@@ -671,22 +748,6 @@ public class MainActivity extends Activity {
             view.setTypeface(Typeface.DEFAULT_BOLD);
         }
         return view;
-    }
-
-    private Button primaryButton(String text, View.OnClickListener listener) {
-        Button button = new Button(this);
-        button.setAllCaps(false);
-        button.setMinHeight(dp(58));
-        button.setText(text);
-        button.setTextSize(17);
-        button.setTextColor(color(android.R.color.white));
-        button.setTypeface(Typeface.DEFAULT_BOLD);
-        button.setBackgroundResource(R.drawable.rounded_button);
-        button.setOnClickListener(listener);
-        button.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        return button;
     }
 
     private Button secondaryButton(String text, View.OnClickListener listener) {
