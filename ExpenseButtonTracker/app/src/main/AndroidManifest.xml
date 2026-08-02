@@ -21,6 +21,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.ArchiveActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".ui.LockScreenQuickAddActivity"
             android:excludeFromRecents="true"
             android:exported="true"
