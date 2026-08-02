@@ -18,13 +18,13 @@ android {
     productFlavors {
         upgrade {
             dimension 'distribution'
-            manifestPlaceholders = [appLabel: 'ManageMe']
+            manifestPlaceholders = [appLabel: 'ManageMe', importEnabled: 'false']
         }
         migration {
             dimension 'distribution'
             applicationIdSuffix '.synced'
             versionNameSuffix '-migration'
-            manifestPlaceholders = [appLabel: 'ManageMe Sync']
+            manifestPlaceholders = [appLabel: 'ManageMe Sync', importEnabled: 'true']
         }
     }
 
