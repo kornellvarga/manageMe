@@ -8,9 +8,12 @@ import {
   token,
   webClientId,
 } from "./auth";
+import { isFinanceCommand, isFinanceSnapshot } from "./finance";
+import { applyFinanceCommandToGitHub, readFinanceLedger, syncFinanceToGitHub } from "./finance-store";
 import { applyCommandToGitHub, readState } from "./github-store";
-import { handleMcp } from "./mcp";
+import { handleMcpWithFinance } from "./mcp-router";
 import { isCommand } from "./state";
+import type { FinanceCommand, FinanceSnapshot } from "./finance";
 import type { Env, ManageMeCommand } from "./types";
 
 function normalizedOrigin(value: string): string {
@@ -57,11 +60,14 @@ function docs(env: Env): Response {
   return json({
     name: "ManageMe Gateway",
     owner: "Kornel",
-    version: "0.1.0",
+    version: "0.2.0",
     purpose: "Authenticated bridge between the ManageMe web/Android clients, assistant tools, and a private GitHub data repository.",
     endpoints: {
       state: "/v1/state",
       commands: "/v1/commands",
+      finance: "/v1/finance",
+      financeSync: "/v1/finance/sync",
+      financeCommands: "/v1/finance/commands",
       mcp: "/mcp",
       authorize: "/oauth/authorize",
       token: "/oauth/token",
@@ -69,6 +75,14 @@ function docs(env: Env): Response {
     webClientId: webClientId(),
     authorizationServer: normalizedOrigin(env.PUBLIC_ORIGIN),
   });
+}
+
+async function requestJson(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    return undefined;
+  }
 }
 
 async function route(request: Request, env: Env): Promise<Response> {
@@ -87,7 +101,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (url.pathname === "/mcp") {
     const auth = await authenticate(request, env, "manage:read");
     if (!auth) return unauthorized(env, "manage:read");
-    return handleMcp(request, env, auth);
+    return handleMcpWithFinance(request, env, auth);
   }
 
   if (url.pathname === "/v1/state" && request.method === "GET") {
@@ -99,15 +113,34 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (url.pathname === "/v1/commands" && request.method === "POST") {
     const auth = await authenticate(request, env, "manage:write");
     if (!auth) return unauthorized(env, "manage:write");
-    let command: unknown;
-    try {
-      command = await request.json();
-    } catch {
-      return json({ error: "invalid_json" }, 400);
-    }
-    if (!isCommand(command)) return json({ error: "invalid_command" }, 400);
+    const command = await requestJson(request);
+    if (!isCommand(command)) return json({ error: command === undefined ? "invalid_json" : "invalid_command" }, 400);
     const state = await applyCommandToGitHub(env, command as ManageMeCommand);
     return json({ state, source: "github" });
+  }
+
+  if (url.pathname === "/v1/finance" && request.method === "GET") {
+    const auth = await authenticate(request, env, "manage:read");
+    if (!auth) return unauthorized(env, "manage:read");
+    return json({ ledger: (await readFinanceLedger(env)).ledger, source: "github" });
+  }
+
+  if (url.pathname === "/v1/finance/sync" && request.method === "POST") {
+    const auth = await authenticate(request, env, "manage:write");
+    if (!auth) return unauthorized(env, "manage:write");
+    const snapshot = await requestJson(request);
+    if (!isFinanceSnapshot(snapshot)) return json({ error: snapshot === undefined ? "invalid_json" : "invalid_finance_snapshot" }, 400);
+    const ledger = await syncFinanceToGitHub(env, snapshot as FinanceSnapshot);
+    return json({ ledger, source: "github" });
+  }
+
+  if (url.pathname === "/v1/finance/commands" && request.method === "POST") {
+    const auth = await authenticate(request, env, "manage:write");
+    if (!auth) return unauthorized(env, "manage:write");
+    const command = await requestJson(request);
+    if (!isFinanceCommand(command)) return json({ error: command === undefined ? "invalid_json" : "invalid_finance_command" }, 400);
+    const result = await applyFinanceCommandToGitHub(env, command as FinanceCommand);
+    return json({ ledger: result.ledger, entityId: result.entityId, source: "github" });
   }
 
   return json({ error: "not_found" }, 404);
