@@ -2,6 +2,7 @@
     <string name="app_name">ManageMe</string>
     <string name="money_tracker_name">Money</string>
     <string name="manage_me_url">https://kornellvarga.github.io/manageMe/</string>
+    <string name="manage_me_api_url">https://manageme-gateway.kornel-718.workers.dev</string>
     <string name="widget_title">Add expense / income</string>
     <string name="widget_description">Quickly open the expense and income selector.</string>
     <string name="qs_tile_label">Add money entry</string>
