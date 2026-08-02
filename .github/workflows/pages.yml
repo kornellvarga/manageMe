@@ -36,12 +36,13 @@ jobs:
           path: ~/.android/debug.keystore
           key: manageme-debug-keystore-v1
 
-      - name: Build Android APK
+      - name: Build Android APKs
         working-directory: ExpenseButtonTracker
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --no-daemon
-          cp app/build/outputs/apk/debug/app-debug.apk ../web/public/ManageMe.apk
+          ./gradlew :app:assembleUpgradeDebug :app:assembleMigrationDebug --no-daemon
+          cp app/build/outputs/apk/upgrade/debug/app-upgrade-debug.apk ../web/public/ManageMe.apk
+          cp app/build/outputs/apk/migration/debug/app-migration-debug.apk ../web/public/ManageMe-Migration.apk
 
       - uses: actions/setup-node@v4
         with:
