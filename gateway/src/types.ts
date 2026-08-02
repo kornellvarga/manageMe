@@ -16,6 +16,7 @@ export interface Env {
   GITHUB_DATA_REPOSITORY: string;
   GITHUB_DATA_BRANCH?: string;
   GITHUB_DATA_PATH?: string;
+  GITHUB_FINANCE_PATH?: string;
 }
 
 export interface Area {
