@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./mobile-sync-fix.css";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://kornellvarga.github.io/manageMe/";
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
