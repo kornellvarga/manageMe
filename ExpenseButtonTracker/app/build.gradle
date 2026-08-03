@@ -2,6 +2,11 @@ plugins {
     id 'com.android.application'
 }
 
+def releaseKeystorePath = System.getenv('MANAGEME_KEYSTORE_FILE') ?: "${rootProject.projectDir}/release-keystore.p12"
+def releaseStorePassword = System.getenv('MANAGEME_KEYSTORE_PASSWORD') ?: 'missing'
+def releaseKeyAlias = System.getenv('MANAGEME_KEY_ALIAS') ?: 'manageme'
+def releaseKeyPassword = System.getenv('MANAGEME_KEY_PASSWORD') ?: 'missing'
+
 android {
     namespace 'com.example.expensebuttontracker'
     compileSdk 35
@@ -12,6 +17,27 @@ android {
         targetSdk 35
         versionCode 4
         versionName '2.2.0'
+    }
+
+    signingConfigs {
+        stableRelease {
+            storeFile file(releaseKeystorePath)
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
+            storeType 'PKCS12'
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+            enableV4Signing true
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.stableRelease
+            minifyEnabled false
+        }
     }
 
     flavorDimensions 'distribution'
@@ -25,6 +51,12 @@ android {
             applicationIdSuffix '.synced'
             versionNameSuffix '-migration'
             manifestPlaceholders = [appLabel: 'ManageMe Sync', importEnabled: 'true']
+        }
+        stable {
+            dimension 'distribution'
+            applicationIdSuffix '.finance'
+            versionNameSuffix '-stable'
+            manifestPlaceholders = [appLabel: 'ManageMe Finance', importEnabled: 'false']
         }
     }
 
