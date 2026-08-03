@@ -20,6 +20,11 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      MANAGEME_KEYSTORE_BASE64: ${{ secrets.MANAGEME_KEYSTORE_BASE64 }}
+      MANAGEME_KEYSTORE_PASSWORD: ${{ secrets.MANAGEME_KEYSTORE_PASSWORD }}
+      MANAGEME_KEY_ALIAS: ${{ secrets.MANAGEME_KEY_ALIAS }}
+      MANAGEME_KEY_PASSWORD: ${{ secrets.MANAGEME_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,19 +35,28 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Keep the APK update signature stable
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: manageme-debug-keystore-v1
+      - name: Require permanent Android signing secrets
+        run: |
+          test -n "$MANAGEME_KEYSTORE_BASE64" || { echo "::error::MANAGEME_KEYSTORE_BASE64 is missing"; exit 1; }
+          test -n "$MANAGEME_KEYSTORE_PASSWORD" || { echo "::error::MANAGEME_KEYSTORE_PASSWORD is missing"; exit 1; }
+          test -n "$MANAGEME_KEY_ALIAS" || { echo "::error::MANAGEME_KEY_ALIAS is missing"; exit 1; }
+          test -n "$MANAGEME_KEY_PASSWORD" || { echo "::error::MANAGEME_KEY_PASSWORD is missing"; exit 1; }
 
-      - name: Build Android APKs
+      - name: Restore permanent Android signing key
         working-directory: ExpenseButtonTracker
+        run: printf '%s' "$MANAGEME_KEYSTORE_BASE64" | base64 --decode > release-keystore.p12
+
+      - name: Build permanently signed Android APK
+        working-directory: ExpenseButtonTracker
+        env:
+          MANAGEME_KEYSTORE_FILE: ${{ github.workspace }}/ExpenseButtonTracker/release-keystore.p12
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleUpgradeDebug :app:assembleMigrationDebug --no-daemon
-          cp app/build/outputs/apk/upgrade/debug/app-upgrade-debug.apk ../web/public/ManageMe.apk
-          cp app/build/outputs/apk/migration/debug/app-migration-debug.apk ../web/public/ManageMe-Migration.apk
+          ./gradlew :app:assembleStableRelease --no-daemon
+          APK=app/build/outputs/apk/stable/release/app-stable-release.apk
+          cp "$APK" ../web/public/ManageMe-Finance.apk
+          cp "$APK" ../web/public/ManageMe.apk
+          cp "$APK" ../web/public/ManageMe-Migration.apk
 
       - uses: actions/setup-node@v4
         with:
@@ -67,4 +81,3 @@ jobs:
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
