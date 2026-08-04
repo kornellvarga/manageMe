@@ -46,17 +46,16 @@ jobs:
         working-directory: ExpenseButtonTracker
         run: printf '%s' "$MANAGEME_KEYSTORE_BASE64" | base64 --decode > release-keystore.p12
 
-      - name: Build permanently signed Android APK
+      - name: Build the unified signed Android APK
         working-directory: ExpenseButtonTracker
         env:
           MANAGEME_KEYSTORE_FILE: ${{ github.workspace }}/ExpenseButtonTracker/release-keystore.p12
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleStableRelease --no-daemon
-          APK=app/build/outputs/apk/stable/release/app-stable-release.apk
-          cp "$APK" ../web/public/ManageMe-Finance.apk
+          ./gradlew :app:assembleRelease --no-daemon
+          APK=app/build/outputs/apk/release/app-release.apk
           cp "$APK" ../web/public/ManageMe.apk
-          cp "$APK" ../web/public/ManageMe-Migration.apk
+          cp "$APK" ../web/public/ManageMe-Finance.apk
 
       - uses: actions/setup-node@v4
         with:

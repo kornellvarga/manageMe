@@ -1,4 +1,10 @@
-import { applyFinanceCommand, createEmptyFinanceLedger, isFinanceLedger, mergeFinanceSnapshot } from "./finance";
+import {
+  applyFinanceCommand,
+  createEmptyFinanceLedger,
+  dedupeFinanceLedger,
+  isFinanceLedger,
+  mergeFinanceSnapshot,
+} from "./finance";
 import { GitHubConflictError, readJsonDocument, writeJsonDocument } from "./github-store";
 import type { FinanceCommand, FinanceLedger, FinanceSnapshot } from "./finance";
 import type { Env } from "./types";
@@ -24,11 +30,18 @@ async function writeFinanceLedger(env: Env, ledger: FinanceLedger, summary: stri
 export async function syncFinanceToGitHub(env: Env, snapshot: FinanceSnapshot): Promise<FinanceLedger> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const current = await readFinanceLedger(env);
-    const result = mergeFinanceSnapshot(current.ledger, snapshot);
-    if (!result.changed) return result.ledger;
+    const merged = mergeFinanceSnapshot(current.ledger, snapshot);
+    const deduped = dedupeFinanceLedger(merged.ledger);
+    if (!merged.changed && !deduped.changed) return deduped.ledger;
     try {
-      await writeFinanceLedger(env, result.ledger, `sync finance from ${snapshot.deviceId || "Android"}`, current.sha);
-      return result.ledger;
+      const duplicateNote = deduped.affectedCount ? ` and remove ${deduped.affectedCount} duplicate(s)` : "";
+      await writeFinanceLedger(
+        env,
+        deduped.ledger,
+        `sync finance from ${snapshot.deviceId || "Android"}${duplicateNote}`,
+        current.sha,
+      );
+      return deduped.ledger;
     } catch (error) {
       if (!(error instanceof GitHubConflictError) || attempt === 2) throw error;
     }
@@ -42,11 +55,23 @@ export async function applyFinanceCommandToGitHub(
 ): Promise<{ ledger: FinanceLedger; entityId?: string; affectedCount?: number }> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const current = await readFinanceLedger(env);
-    const result = applyFinanceCommand(current.ledger, command);
-    if (!result.changed) return { ledger: result.ledger, entityId: result.entityId, affectedCount: result.affectedCount };
+    const applied = applyFinanceCommand(current.ledger, command);
+    const deduped = dedupeFinanceLedger(applied.ledger);
+    if (!applied.changed && !deduped.changed) {
+      return { ledger: deduped.ledger, entityId: applied.entityId, affectedCount: applied.affectedCount };
+    }
     try {
-      await writeFinanceLedger(env, result.ledger, `${command.type.replaceAll("_", " ")} ${result.entityId || "finance"}`, current.sha);
-      return { ledger: result.ledger, entityId: result.entityId, affectedCount: result.affectedCount };
+      await writeFinanceLedger(
+        env,
+        deduped.ledger,
+        `${command.type.replaceAll("_", " ")} ${applied.entityId || "finance"}`,
+        current.sha,
+      );
+      return {
+        ledger: deduped.ledger,
+        entityId: applied.entityId,
+        affectedCount: applied.affectedCount,
+      };
     } catch (error) {
       if (!(error instanceof GitHubConflictError) || attempt === 2) throw error;
     }

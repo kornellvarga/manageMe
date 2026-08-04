@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.data.FinanceDuplicateCleaner;
 import com.example.expensebuttontracker.data.FinanceArchiveStore;
 import com.example.expensebuttontracker.util.SettingsStore;
 
@@ -95,6 +96,7 @@ public final class FinanceSyncClient {
             SettingsStore.updateFinanceRefreshToken(context, tokens.refreshToken);
         }
 
+        FinanceDuplicateCleaner.dedupeExact(context);
         ExpenseDbHelper db = new ExpenseDbHelper(context);
         String payload = FinanceArchiveStore.decorateSyncPayload(db.buildFinanceSyncPayload());
         JSONObject response = requestJson(
@@ -106,6 +108,8 @@ public final class FinanceSyncClient {
         JSONObject ledger = response.getJSONObject("ledger");
         db.applyFinanceLedger(ledger.toString());
         FinanceArchiveStore.applyRemoteLedger(context, ledger.toString());
+        int duplicatesRemoved = FinanceDuplicateCleaner.dedupeExact(context);
+        if (duplicatesRemoved > 0) PENDING.set(true);
         SettingsStore.markFinanceSyncSuccess(context, ledger.optLong("revision", 0L));
     }
 

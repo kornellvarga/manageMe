@@ -33,6 +33,7 @@ import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.CurrencyTotal;
 import com.example.expensebuttontracker.data.EntryType;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.data.FinanceDuplicateCleaner;
 import com.example.expensebuttontracker.data.FinanceArchiveStore;
 import com.example.expensebuttontracker.data.MoneyEntry;
 import com.example.expensebuttontracker.data.Totals;
@@ -78,10 +79,14 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         db = new ExpenseDbHelper(this);
+        int duplicatesRemoved = FinanceDuplicateCleaner.dedupeExact(this);
         displayCurrency = SettingsStore.getDisplayCurrency(this);
         exchangeRates = ExchangeRateStore.loadCached(this);
         setTitle("Money tracker");
         buildUi();
+        if (duplicatesRemoved > 0) {
+            toast("Removed " + duplicatesRemoved + " exact duplicate entr" + (duplicatesRemoved == 1 ? "y." : "ies."));
+        }
         LockScreenQuickAddNotification.update(this);
         if (exchangeRates == null || exchangeRates.isStale(System.currentTimeMillis())) {
             refreshRates(false);
@@ -461,6 +466,7 @@ public class MainActivity extends Activity {
         details.setMaxLines(2);
         row.addView(details);
 
+        row.setOnClickListener(v -> showEntryActions(entry));
         row.setOnLongClickListener(v -> {
             showEntryActions(entry);
             return true;
@@ -469,16 +475,23 @@ public class MainActivity extends Activity {
     }
 
     private void showEntryActions(MoneyEntry entry) {
-        String[] actions = new String[]{"Archive", "Delete permanently"};
+        String[] actions = new String[]{"Edit", "Archive", "Delete permanently"};
         new AlertDialog.Builder(this)
                 .setTitle(entry.name)
-                .setMessage("Archive keeps the entry but removes it from current totals. Delete creates a deletion tombstone.")
+                .setMessage("Edit changes the transaction. Archive keeps it outside current totals. Delete removes it from current and archived history.")
                 .setItems(actions, (dialog, which) -> {
-                    if (which == 0) archiveEntry(entry);
+                    if (which == 0) editEntry(entry);
+                    else if (which == 1) archiveEntry(entry);
                     else confirmDelete(entry);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    private void editEntry(MoneyEntry entry) {
+        Intent intent = new Intent(this, EditEntryActivity.class);
+        intent.putExtra(EditEntryActivity.EXTRA_ENTRY_ID, entry.id);
+        startActivity(intent);
     }
 
     private void archiveEntry(MoneyEntry entry) {

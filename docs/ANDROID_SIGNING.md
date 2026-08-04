@@ -1,14 +1,15 @@
 # Permanent Android signing
 
-ManageMe APKs must never rely on a GitHub Actions debug keystore or an Actions cache. Android accepts an update only when the application ID and signing certificate match the installed app and the version code is not lower.
+ManageMe must never rely on a generated debug keystore or an Actions cache. Android accepts an update only when the application ID and signing certificate match the installed app and the version code is not lower.
 
-The long-term package is:
+## Official app identity
 
 ```text
-com.example.expensebuttontracker.finance
+Application ID: com.example.expensebuttontracker.finance
+Download:       https://kornellvarga.github.io/manageMe/ManageMe.apk
 ```
 
-It is published as `ManageMe-Finance.apk`; the legacy download filenames also point to this same stable APK.
+There is one official package and one official APK. `ManageMe-Finance.apk` may remain as a filename alias for old bookmarks, but it contains the same unified app. Migration and import APKs are not published.
 
 ## Required repository secrets
 
@@ -19,12 +20,12 @@ Configure these under **Settings → Secrets and variables → Actions → Repos
 - `MANAGEME_KEY_ALIAS`
 - `MANAGEME_KEY_PASSWORD`
 
-The Pages workflow fails rather than publishing a differently signed APK when any secret is missing.
+The Pages workflow fails rather than publishing an unsigned or differently signed APK when a secret is missing.
 
 ## Key custody
 
-Keep the original PKCS#12 keystore in at least two private backups. Do not commit it to this public source repository. Losing the key means future builds cannot update the stable app. Anyone who obtains the key could sign an APK accepted as an update, so treat it as a permanent credential.
+Keep the original PKCS#12 keystore in at least two private backups. Do not commit it to the source repository. Losing the key means future builds cannot update the official app. Anyone who obtains the key could sign an accepted update, so treat it as a permanent credential.
 
-## One-time continuity migration
+## Legacy installations
 
-Older `ManageMe` and `ManageMe Sync` installations were built with ephemeral debug certificates and cannot be updated reliably. Keep them installed until the finance ledger is visible in GitHub. Then install `ManageMe Finance`, connect GitHub, open Money, sync, and verify the records before removing an older installation.
+Older ManageMe and ManageMe Sync installations used ephemeral certificates and cannot be upgraded into the official package. Keep a legacy app only until the official ManageMe app has connected to GitHub, synchronized the finance ledger, and been checked. Then the legacy installation can be removed manually.
