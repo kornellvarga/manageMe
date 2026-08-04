@@ -12,11 +12,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.example.expensebuttontracker'
+        applicationId 'com.example.expensebuttontracker.finance'
         minSdk 24
         targetSdk 35
-        versionCode 4
-        versionName '2.2.0'
+        versionCode 5
+        versionName '2.3.0'
     }
 
     signingConfigs {
@@ -37,26 +37,6 @@ android {
         release {
             signingConfig signingConfigs.stableRelease
             minifyEnabled false
-        }
-    }
-
-    flavorDimensions 'distribution'
-    productFlavors {
-        upgrade {
-            dimension 'distribution'
-            manifestPlaceholders = [appLabel: 'ManageMe', importEnabled: 'false']
-        }
-        migration {
-            dimension 'distribution'
-            applicationIdSuffix '.synced'
-            versionNameSuffix '-migration'
-            manifestPlaceholders = [appLabel: 'ManageMe Sync', importEnabled: 'true']
-        }
-        stable {
-            dimension 'distribution'
-            applicationIdSuffix '.finance'
-            versionNameSuffix '-stable'
-            manifestPlaceholders = [appLabel: 'ManageMe Finance', importEnabled: 'false']
         }
     }
 
