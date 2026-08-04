@@ -475,16 +475,12 @@ public class MainActivity extends Activity {
     }
 
     private void showEntryActions(MoneyEntry entry) {
-        String[] actions = new String[]{"Edit", "Archive", "Delete permanently"};
         new AlertDialog.Builder(this)
                 .setTitle(entry.name)
                 .setMessage("Edit changes the transaction. Archive keeps it outside current totals. Delete removes it from current and archived history.")
-                .setItems(actions, (dialog, which) -> {
-                    if (which == 0) editEntry(entry);
-                    else if (which == 1) archiveEntry(entry);
-                    else confirmDelete(entry);
-                })
-                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Edit", (dialog, which) -> editEntry(entry))
+                .setNeutralButton("Archive", (dialog, which) -> archiveEntry(entry))
+                .setNegativeButton("Delete permanently", (dialog, which) -> confirmDelete(entry))
                 .show();
     }
 

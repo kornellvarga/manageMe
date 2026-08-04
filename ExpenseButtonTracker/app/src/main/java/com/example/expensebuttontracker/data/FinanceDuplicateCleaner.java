@@ -67,7 +67,7 @@ public final class FinanceDuplicateCleaner {
                 + amountCents + '\u0000'
                 + CurrencyUtils.normalize(currencyCode) + '\u0000'
                 + normalize(name) + '\u0000'
-                + createdAtMillis;
+                + (createdAtMillis / 1000L);
     }
 
     private static String normalize(String value) {

@@ -28,12 +28,12 @@ const duplicate = {
 };
 const baseTime = duplicate.createdAtMillis;
 
-test("exact duplicate entries become deletion tombstones", () => {
+test("sub-second duplicate entries become deletion tombstones", () => {
   const ledger = mergeFinanceSnapshot(createEmptyFinanceLedger(), {
     requestId: "android_sync_dedupe_1",
     entries: [
-      { id: "money_a", ...duplicate, updatedAtMillis: baseTime + 1000, actor: "android" },
-      { id: "money_b", ...duplicate, updatedAtMillis: baseTime + 2000, actor: "android" },
+      { id: "money_a", ...duplicate, createdAtMillis: baseTime + 185, updatedAtMillis: baseTime + 1000, actor: "android" },
+      { id: "money_b", ...duplicate, createdAtMillis: baseTime, updatedAtMillis: baseTime + 2000, actor: "android" },
     ],
     categories: [],
   }).ledger;
