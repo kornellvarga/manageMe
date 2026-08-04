@@ -68,7 +68,10 @@ public final class UpdateManager {
 
     public static void checkForUpdates(Activity activity) {
         if (!isUsable(activity)) return;
-        resumePendingInstall(activity);
+        if (hasPendingUpdate(activity)) {
+            resumePendingInstall(activity);
+            return;
+        }
         if (!CHECKING.compareAndSet(false, true)) return;
 
         Context appContext = activity.getApplicationContext();
@@ -316,6 +319,15 @@ public final class UpdateManager {
             while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
             output.getFD().sync();
         }
+    }
+
+    private static boolean hasPendingUpdate(Context context) {
+        int pendingVersion = prefs(context).getInt(KEY_PENDING_VERSION, 0);
+        String pendingPath = prefs(context).getString(KEY_PENDING_PATH, "");
+        return pendingVersion > BuildConfig.VERSION_CODE
+                && pendingPath != null
+                && !pendingPath.isEmpty()
+                && new File(pendingPath).isFile();
     }
 
     private static SharedPreferences prefs(Context context) {
