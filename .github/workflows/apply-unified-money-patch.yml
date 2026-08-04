@@ -6,6 +6,11 @@ on:
     paths:
       - "scripts/apply_unified_money_patch.py"
       - ".github/workflows/apply-unified-money-patch.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/apply_unified_money_patch.py"
+      - ".github/workflows/apply-unified-money-patch.yml"
 
 permissions:
   contents: write
