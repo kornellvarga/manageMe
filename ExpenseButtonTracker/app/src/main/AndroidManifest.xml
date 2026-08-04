@@ -7,7 +7,7 @@
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
-        android:label="${appLabel}"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
@@ -22,6 +22,10 @@
 
         <activity
             android:name=".ui.ArchiveActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.EditEntryActivity"
             android:exported="false" />
 
         <activity
@@ -41,17 +45,6 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="false" />
-
-        <activity
-            android:name=".ui.ImportCsvActivity"
-            android:enabled="${importEnabled}"
-            android:exported="true"
-            android:label="Import Money CSV">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
 
         <activity
             android:name=".ui.ManageMeActivity"
