@@ -239,6 +239,58 @@ function sortedCategories(categories: FinanceCategory[]): FinanceCategory[] {
   return [...categories].sort((a, b) => a.type.localeCompare(b.type) || a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 }
 
+
+function normalizeFingerprintText(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function entryFingerprint(entry: FinanceEntry): string {
+  return [
+    entry.type,
+    normalizeFingerprintText(entry.category),
+    String(entry.amountCents),
+    entry.currencyCode,
+    normalizeFingerprintText(entry.name),
+    String(entry.createdAtMillis),
+  ].join("\u0000");
+}
+
+export function dedupeFinanceLedger(
+  current: FinanceLedger,
+  now = new Date(),
+): { ledger: FinanceLedger; changed: boolean; affectedCount: number } {
+  const next = structuredClone(current);
+  const candidates = next.entries
+    .filter((entry) => !entry.deletedAtMillis)
+    .sort((left, right) => {
+      const leftArchived = left.archivedAtMillis ? 1 : 0;
+      const rightArchived = right.archivedAtMillis ? 1 : 0;
+      return leftArchived - rightArchived
+        || right.updatedAtMillis - left.updatedAtMillis
+        || left.id.localeCompare(right.id);
+    });
+  const seen = new Set<string>();
+  const nowMillis = now.getTime();
+  let affectedCount = 0;
+  for (const entry of candidates) {
+    const fingerprint = entryFingerprint(entry);
+    if (!seen.has(fingerprint)) {
+      seen.add(fingerprint);
+      continue;
+    }
+    entry.deletedAtMillis = nowMillis;
+    entry.archivedAtMillis = undefined;
+    entry.updatedAtMillis = nowMillis;
+    entry.actor = "system";
+    affectedCount += 1;
+  }
+  if (affectedCount === 0) return { ledger: current, changed: false, affectedCount: 0 };
+  next.revision += 1;
+  next.entries = sortedEntries(next.entries);
+  next.updatedAt = now.toISOString();
+  return { ledger: next, changed: true, affectedCount };
+}
+
 export function mergeFinanceSnapshot(current: FinanceLedger, snapshot: FinanceSnapshot): { ledger: FinanceLedger; changed: boolean } {
   const incomingEntries = snapshot.entries.map((entry) => sanitizeFinanceEntry(entry, "android"));
   const incomingCategories = snapshot.categories.map((category) => sanitizeFinanceCategory(category));
@@ -296,6 +348,11 @@ export function applyFinanceCommand(
         actor: command.actor,
       }, command.actor);
       if (next.entries.some((item) => item.id === entry.id)) throw new Error("Finance entry id already exists.");
+      const semanticDuplicate = next.entries.find((item) => !item.deletedAtMillis && entryFingerprint(item) === entryFingerprint(entry));
+      if (semanticDuplicate) {
+        entityId = semanticDuplicate.id;
+        break;
+      }
       next.entries.unshift(entry);
       entityId = entry.id;
       break;
