@@ -251,7 +251,7 @@ function entryFingerprint(entry: FinanceEntry): string {
     String(entry.amountCents),
     entry.currencyCode,
     normalizeFingerprintText(entry.name),
-    String(entry.createdAtMillis),
+    String(Math.floor(entry.createdAtMillis / 1000)),
   ].join("\u0000");
 }
 
