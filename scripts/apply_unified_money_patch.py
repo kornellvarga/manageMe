@@ -86,15 +86,19 @@ replace_once(
 )
 replace_once(
     "ExpenseButtonTracker/app/src/main/java/com/example/expensebuttontracker/sync/FinanceSyncClient.java",
-    "        ExpenseDbHelper db = new ExpenseDbHelper(context);\n        String payload = db.buildFinanceSyncPayload();",
+    "        ExpenseDbHelper db = new ExpenseDbHelper(context);\n"
+    "        String payload = FinanceArchiveStore.decorateSyncPayload(db.buildFinanceSyncPayload());",
     "        FinanceDuplicateCleaner.dedupeExact(context);\n"
     "        ExpenseDbHelper db = new ExpenseDbHelper(context);\n"
-    "        String payload = db.buildFinanceSyncPayload();",
+    "        String payload = FinanceArchiveStore.decorateSyncPayload(db.buildFinanceSyncPayload());",
 )
 replace_once(
     "ExpenseButtonTracker/app/src/main/java/com/example/expensebuttontracker/sync/FinanceSyncClient.java",
-    "        db.applyFinanceLedger(ledger.toString());\n        SettingsStore.markFinanceSyncSuccess(context, ledger.optLong(\"revision\", 0L));",
     "        db.applyFinanceLedger(ledger.toString());\n"
+    "        FinanceArchiveStore.applyRemoteLedger(context, ledger.toString());\n"
+    "        SettingsStore.markFinanceSyncSuccess(context, ledger.optLong(\"revision\", 0L));",
+    "        db.applyFinanceLedger(ledger.toString());\n"
+    "        FinanceArchiveStore.applyRemoteLedger(context, ledger.toString());\n"
     "        int duplicatesRemoved = FinanceDuplicateCleaner.dedupeExact(context);\n"
     "        if (duplicatesRemoved > 0) PENDING.set(true);\n"
     "        SettingsStore.markFinanceSyncSuccess(context, ledger.optLong(\"revision\", 0L));",
