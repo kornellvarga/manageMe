@@ -22,6 +22,7 @@ import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.EntryType;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
 import com.example.expensebuttontracker.data.EntryFxStore;
+import com.example.expensebuttontracker.data.MoneyEntry;
 import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.MoneyUtils;
@@ -34,6 +35,7 @@ import java.util.Locale;
 public final class EditEntryActivity extends Activity {
     public static final String EXTRA_ENTRY_ID = "money_entry_id";
     private static final String DATE_PATTERN = "yyyy-MM-dd HH:mm";
+    private static final String FX_DATE_PATTERN = "yyyy-MM-dd";
 
     private ExpenseDbHelper db;
     private long entryId;
@@ -138,6 +140,8 @@ public final class EditEntryActivity extends Activity {
         SimpleDateFormat format = new SimpleDateFormat(DATE_PATTERN, Locale.getDefault());
         dateInput = textInput("Date and time", format.format(new Date(entry.createdAtMillis)), InputType.TYPE_CLASS_DATETIME);
         root.addView(field("Date and time (" + DATE_PATTERN + ")", dateInput));
+        root.addView(spacer(10));
+        root.addView(fxRateDateView(entry));
         root.addView(spacer(18));
 
         root.addView(primaryButton("Save changes", this::save));
@@ -146,6 +150,40 @@ public final class EditEntryActivity extends Activity {
 
         setContentView(scroll);
         refreshChoices();
+    }
+
+    private TextView fxRateDateView(EntryRecord entry) {
+        EntryFxStore fxStore = new EntryFxStore(this);
+        String rateDate;
+        try {
+            MoneyEntry moneyEntry = new MoneyEntry(
+                    entryId,
+                    entry.type,
+                    entry.category,
+                    entry.amountCents,
+                    entry.currency,
+                    entry.name,
+                    entry.createdAtMillis);
+            rateDate = fxStore.getRateDate(moneyEntry);
+        } finally {
+            fxStore.close();
+        }
+
+        String text;
+        if (rateDate == null || rateDate.isEmpty()) {
+            text = "Exchange rate used: pending historical rate";
+        } else {
+            SimpleDateFormat dayFormat = new SimpleDateFormat(FX_DATE_PATTERN, Locale.US);
+            String transactionDate = dayFormat.format(new Date(entry.createdAtMillis));
+            text = "Exchange rate used: " + rateDate;
+            if (!rateDate.equals(transactionDate)) {
+                text += " (latest available before transaction date)";
+            }
+        }
+
+        TextView view = label(text, 14, false);
+        view.setTextColor(color(R.color.text_secondary));
+        return view;
     }
 
     private void save() {
