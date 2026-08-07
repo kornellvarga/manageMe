@@ -29,6 +29,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.example.expensebuttontracker.BuildConfig;
 import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.CurrencyTotal;
 import com.example.expensebuttontracker.data.EntryType;
@@ -89,7 +90,7 @@ public class MainActivity extends Activity {
         int duplicatesRemoved = FinanceDuplicateCleaner.dedupeExact(this);
         displayCurrency = SettingsStore.getDisplayCurrency(this);
         exchangeRates = ExchangeRateStore.loadCached(this);
-        setTitle("Money tracker");
+        setTitle("Money tracker · v" + BuildConfig.VERSION_NAME);
         buildUi();
         if (duplicatesRemoved > 0) {
             toast("Removed " + duplicatesRemoved + " exact duplicate entr" + (duplicatesRemoved == 1 ? "y." : "ies."));
@@ -121,7 +122,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Money tracker");
+        title.setText("Money tracker · v" + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")");
         title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(color(R.color.text_primary));
