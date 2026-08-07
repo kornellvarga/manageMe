@@ -33,6 +33,7 @@ import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.CurrencyTotal;
 import com.example.expensebuttontracker.data.EntryType;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.data.EntryFxStore;
 import com.example.expensebuttontracker.data.FinanceDuplicateCleaner;
 import com.example.expensebuttontracker.data.FinanceArchiveStore;
 import com.example.expensebuttontracker.data.MoneyEntry;
@@ -43,6 +44,7 @@ import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.ExchangeRateStore;
 import com.example.expensebuttontracker.util.ExchangeRates;
+import com.example.expensebuttontracker.util.HistoricalRateBackfill;
 import com.example.expensebuttontracker.util.MoneyUtils;
 import com.example.expensebuttontracker.util.SettingsStore;
 import com.example.expensebuttontracker.widget.ExpenseQuickAddWidget;
@@ -60,6 +62,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_POST_NOTIFICATIONS = 7002;
 
     private ExpenseDbHelper db;
+    private EntryFxStore fxStore;
     private TextView balanceText;
     private TextView incomeText;
     private TextView expenseText;
@@ -74,11 +77,15 @@ public class MainActivity extends Activity {
     private boolean ratesLoading;
     private boolean missingRateForDashboard;
     private String rateErrorMessage;
+    private boolean historicalRatesLoading;
+    private int historicalRatesPending;
+    private String historicalRateErrorMessage;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         db = new ExpenseDbHelper(this);
+        fxStore = new EntryFxStore(this);
         int duplicatesRemoved = FinanceDuplicateCleaner.dedupeExact(this);
         displayCurrency = SettingsStore.getDisplayCurrency(this);
         exchangeRates = ExchangeRateStore.loadCached(this);
@@ -98,6 +105,7 @@ public class MainActivity extends Activity {
         super.onResume();
         refreshDashboard();
         syncNow(false);
+        backfillHistoricalRates(false);
     }
 
     private void buildUi() {
@@ -279,8 +287,10 @@ public class MainActivity extends Activity {
     }
 
     private void refreshDashboard() {
-        List<CurrencyTotal> totalsByCurrency = db.getTotalsByCurrency();
-        Totals totals = convertTotals(totalsByCurrency);
+        List<MoneyEntry> allEntries = db.getAllEntries();
+        lockTodaysEntriesWithCurrentRate(allEntries);
+        historicalRatesPending = fxStore.countMissing(allEntries);
+        Totals totals = convertTotals(allEntries);
         balanceText.setText(MoneyUtils.formatCents(totals.balanceCents(), displayCurrency));
         incomeText.setText(MoneyUtils.formatCents(totals.incomeCents, displayCurrency));
         expenseText.setText(MoneyUtils.formatCents(totals.expenseCents, displayCurrency));
@@ -304,24 +314,80 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Totals convertTotals(List<CurrencyTotal> totalsByCurrency) {
+    private void lockTodaysEntriesWithCurrentRate(List<MoneyEntry> entries) {
+        if (exchangeRates == null || exchangeRates.isStale(System.currentTimeMillis())) {
+            return;
+        }
+        String today = ExchangeRateStore.formatDate(System.currentTimeMillis());
+        for (MoneyEntry entry : entries) {
+            if (!today.equals(ExchangeRateStore.formatDate(entry.createdAtMillis))) {
+                continue;
+            }
+            if (!fxStore.hasCompleteLock(entry)) {
+                fxStore.store(entry, exchangeRates);
+            }
+        }
+    }
+
+    private Totals convertTotals(List<MoneyEntry> entries) {
         missingRateForDashboard = false;
         long expense = 0L;
         long income = 0L;
-        for (CurrencyTotal total : totalsByCurrency) {
-            Long convertedExpense = convertCents(total.expenseCents, total.currencyCode, displayCurrency);
-            Long convertedIncome = convertCents(total.incomeCents, total.currencyCode, displayCurrency);
-            if (convertedExpense != null) {
-                expense += convertedExpense;
-            }
-            if (convertedIncome != null) {
-                income += convertedIncome;
-            }
-            if (convertedExpense == null || convertedIncome == null) {
+        for (MoneyEntry entry : entries) {
+            Long converted = fxStore.getLockedValueCents(entry, displayCurrency);
+            if (converted == null) {
                 missingRateForDashboard = true;
+                continue;
+            }
+            if (EntryType.INCOME.equals(entry.type)) {
+                income += converted;
+            } else {
+                expense += converted;
             }
         }
         return new Totals(expense, income);
+    }
+
+    private void backfillHistoricalRates(boolean userRequested) {
+        if (historicalRatesLoading) {
+            return;
+        }
+
+        historicalRatesPending = fxStore.countMissing(db.getAllEntries());
+        if (historicalRatesPending == 0) {
+            historicalRateErrorMessage = null;
+            refreshRateStatus();
+            return;
+        }
+
+        historicalRatesLoading = true;
+        historicalRateErrorMessage = null;
+        refreshRateStatus();
+        HistoricalRateBackfill.run(this, db, fxStore, new HistoricalRateBackfill.Callback() {
+            @Override
+            public void onComplete(int lockedCount, int remainingCount) {
+                historicalRatesLoading = false;
+                historicalRatesPending = remainingCount;
+                historicalRateErrorMessage = null;
+                refreshDashboard();
+                if (userRequested) {
+                    toast(remainingCount == 0
+                            ? "Transaction-date values locked."
+                            : remainingCount + " entries still need historical rates.");
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                historicalRatesLoading = false;
+                historicalRateErrorMessage = message;
+                historicalRatesPending = fxStore.countMissing(db.getAllEntries());
+                refreshRateStatus();
+                if (userRequested) {
+                    toast(message);
+                }
+            }
+        });
     }
 
     private Long convertCents(long amountCents, String fromCurrency, String toCurrency) {
@@ -349,6 +415,7 @@ public class MainActivity extends Activity {
                 rateErrorMessage = null;
                 exchangeRates = rates;
                 refreshDashboard();
+                backfillHistoricalRates(false);
                 if (userRequested) {
                     toast("Exchange rates updated.");
                 }
@@ -371,21 +438,31 @@ public class MainActivity extends Activity {
         if (rateStatusText == null) {
             return;
         }
+
+        String live;
         if (ratesLoading) {
-            rateStatusText.setText("Rates: updating from Frankfurter...");
+            live = "Live rates: updating from Frankfurter...";
         } else if (rateErrorMessage != null) {
-            rateStatusText.setText("Rates: update failed - " + rateErrorMessage);
+            live = "Live rates: update failed - " + rateErrorMessage;
         } else if (exchangeRates == null) {
-            if (missingRateForDashboard) {
-                rateStatusText.setText("Rates: not loaded yet. Refresh to convert every currency.");
-            } else {
-                rateStatusText.setText("Rates: not loaded yet. Same-currency totals still work offline.");
-            }
+            live = "Live rates: not loaded yet.";
         } else {
             String date = exchangeRates.date.isEmpty() ? "" : " | " + exchangeRates.date;
-            String missing = missingRateForDashboard ? " | refresh needed for every currency" : "";
-            rateStatusText.setText("Rates: " + exchangeRates.describe() + date + missing);
+            live = "Live rates: " + exchangeRates.describe() + date;
         }
+
+        String locked;
+        if (historicalRatesLoading) {
+            locked = " | locking transaction-date values...";
+        } else if (historicalRatesPending > 0) {
+            locked = " | " + historicalRatesPending + " historical value"
+                    + (historicalRatesPending == 1 ? "" : "s") + " pending";
+        } else if (historicalRateErrorMessage != null) {
+            locked = " | historical FX will retry when online";
+        } else {
+            locked = " | transaction values locked";
+        }
+        rateStatusText.setText(live + locked);
     }
 
     private void refreshSyncStatus() {
@@ -418,6 +495,7 @@ public class MainActivity extends Activity {
         if (syncStatusText != null) syncStatusText.setText("Syncing money data…");
         FinanceSyncClient.syncAsync(this, (synced, message) -> {
             refreshDashboard();
+            backfillHistoricalRates(false);
             if (userRequested) toast(message);
         });
     }
@@ -444,7 +522,7 @@ public class MainActivity extends Activity {
         TextView amount = new TextView(this);
         String prefix = EntryType.INCOME.equals(entry.type) ? "+" : "-";
         String amountText = prefix + MoneyUtils.formatCents(entry.amountCents, entry.currencyCode);
-        Long convertedAmount = convertCents(entry.amountCents, entry.currencyCode, displayCurrency);
+        Long convertedAmount = fxStore.getLockedValueCents(entry, displayCurrency);
         if (convertedAmount != null && !CurrencyUtils.normalize(entry.currencyCode).equals(displayCurrency)) {
             amountText += " (" + prefix + MoneyUtils.formatCents(convertedAmount, displayCurrency) + ")";
         }
@@ -648,6 +726,17 @@ public class MainActivity extends Activity {
         if (!granted) {
             toast("Notification permission is needed for a lock-screen card.");
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (fxStore != null) {
+            fxStore.close();
+        }
+        if (db != null) {
+            db.close();
+        }
+        super.onDestroy();
     }
 
     private TextView addStatTile(LinearLayout row, String title, int amountColor, boolean left) {

@@ -21,6 +21,7 @@ import android.widget.Toast;
 import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.EntryType;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.data.EntryFxStore;
 import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.MoneyUtils;
@@ -192,6 +193,9 @@ public final class EditEntryActivity extends Activity {
             Toast.makeText(this, "The entry could not be updated.", Toast.LENGTH_LONG).show();
             return;
         }
+        EntryFxStore fxStore = new EntryFxStore(this);
+        fxStore.invalidate(entryId);
+        fxStore.close();
         db.addCategory(selectedType, category);
         FinanceSyncClient.syncAsync(this);
         setResult(RESULT_OK);
