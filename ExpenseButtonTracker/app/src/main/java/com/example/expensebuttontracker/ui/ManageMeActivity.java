@@ -25,6 +25,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.example.expensebuttontracker.BuildConfig;
 import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.SettingsStore;
@@ -69,7 +70,7 @@ public final class ManageMeActivity extends Activity {
         toolbar.setBackgroundColor(getColorCompat(R.color.surface));
 
         TextView title = new TextView(this);
-        title.setText(R.string.app_name);
+        title.setText(getString(R.string.app_name) + " · v" + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")");
         title.setTextColor(getColorCompat(R.color.text_primary));
         title.setTextSize(20);
         title.setTypeface(Typeface.DEFAULT_BOLD);
