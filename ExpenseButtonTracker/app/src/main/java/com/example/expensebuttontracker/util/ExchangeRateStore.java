@@ -17,6 +17,13 @@ import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 public final class ExchangeRateStore {
     private static final String TAG = "ExchangeRateStore";
@@ -35,6 +42,12 @@ public final class ExchangeRateStore {
 
     public interface Callback {
         void onSuccess(ExchangeRates rates);
+
+        void onError(String message);
+    }
+
+    public interface HistoricalCallback {
+        void onSuccess(List<ExchangeRates> rates);
 
         void onError(String message);
     }
@@ -71,6 +84,91 @@ public final class ExchangeRateStore {
             }
         }, "exchange-rate-fetch");
         worker.start();
+    }
+
+    public static void fetchHistoricalRange(
+            Context context,
+            long fromMillis,
+            long toMillis,
+            HistoricalCallback callback) {
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+        Thread worker = new Thread(() -> {
+            try {
+                List<ExchangeRates> rates = requestHistoricalRange(fromMillis, toMillis);
+                mainHandler.post(() -> callback.onSuccess(rates));
+            } catch (Exception ex) {
+                String message = ex.getMessage() == null
+                        ? "Could not load historical exchange rates."
+                        : ex.getMessage();
+                mainHandler.post(() -> callback.onError(message));
+            }
+        }, "historical-exchange-rate-fetch");
+        worker.start();
+    }
+
+    public static String formatDate(long millis) {
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+        return format.format(new Date(millis));
+    }
+
+    private static List<ExchangeRates> requestHistoricalRange(long fromMillis, long toMillis) throws Exception {
+        String from = formatDate(Math.min(fromMillis, toMillis));
+        String to = formatDate(Math.max(fromMillis, toMillis));
+        String ratesUrl = "https://api.frankfurter.dev/v2/rates?from=" + from
+                + "&to=" + to
+                + "&base=EUR&quotes=HUF,TRY";
+
+        HttpURLConnection connection = (HttpURLConnection) new URL(ratesUrl).openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(8000);
+        connection.setReadTimeout(12000);
+        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("User-Agent", "ExpenseButtonTracker/1.0");
+        int statusCode = connection.getResponseCode();
+        if (statusCode < 200 || statusCode >= 300) {
+            throw new IOException("Historical rate service returned HTTP " + statusCode + ".");
+        }
+        try (InputStream stream = connection.getInputStream()) {
+            return parseHistorical(readAll(stream), System.currentTimeMillis());
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static List<ExchangeRates> parseHistorical(String body, long fetchedAtMillis) throws Exception {
+        JSONArray values = new JSONArray(body);
+        LinkedHashMap<String, BigDecimal[]> byDate = new LinkedHashMap<>();
+
+        for (int i = 0; i < values.length(); i++) {
+            JSONObject item = values.getJSONObject(i);
+            String date = item.optString("date", "");
+            String quote = item.optString("quote", "");
+            if (date.isEmpty()) {
+                continue;
+            }
+            BigDecimal[] pair = byDate.get(date);
+            if (pair == null) {
+                pair = new BigDecimal[2];
+                byDate.put(date, pair);
+            }
+            if (CurrencyUtils.HUF.equals(quote)) {
+                pair[0] = decimal(item.get("rate"));
+            } else if (CurrencyUtils.TRY.equals(quote)) {
+                pair[1] = decimal(item.get("rate"));
+            }
+        }
+
+        ArrayList<ExchangeRates> result = new ArrayList<>();
+        for (Map.Entry<String, BigDecimal[]> item : byDate.entrySet()) {
+            BigDecimal[] pair = item.getValue();
+            if (pair[0] != null && pair[1] != null) {
+                result.add(new ExchangeRates(pair[0], pair[1], item.getKey(), fetchedAtMillis));
+            }
+        }
+        if (result.isEmpty()) {
+            throw new IOException("Historical rate response did not include HUF and TL.");
+        }
+        return result;
     }
 
     private static ExchangeRates requestLatestRates() throws Exception {
