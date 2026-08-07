@@ -20,6 +20,7 @@ import android.widget.Toast;
 
 import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.EntryType;
+import com.example.expensebuttontracker.data.EntryFxStore;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
 import com.example.expensebuttontracker.data.FinanceArchiveStore;
 import com.example.expensebuttontracker.data.MoneyEntry;
@@ -37,6 +38,7 @@ import java.util.Locale;
 
 public class ArchiveActivity extends Activity {
     private LinearLayout root;
+    private EntryFxStore fxStore;
     private LinearLayout archivedContainer;
     private TextView cutoffText;
     private TextView syncStatusText;
@@ -45,6 +47,7 @@ public class ArchiveActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        fxStore = new EntryFxStore(this);
         Calendar calendar = Calendar.getInstance();
         calendar.set(Calendar.HOUR_OF_DAY, 0);
         calendar.set(Calendar.MINUTE, 0);
@@ -197,10 +200,12 @@ public class ArchiveActivity extends Activity {
 
         TextView details = new TextView(this);
         details.setText(entry.category + " · " + CurrencyUtils.displayCode(entry.currencyCode) + "\n"
-                + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(entry.createdAtMillis)));
+                + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(entry.createdAtMillis)) + "\n"
+                + fxRateText(entry));
         details.setTextSize(12);
         details.setTextColor(color(R.color.text_secondary));
         details.setPadding(0, dp(7), 0, dp(10));
+        details.setMaxLines(3);
         row.addView(details);
 
         LinearLayout actions = new LinearLayout(this);
@@ -209,6 +214,13 @@ public class ArchiveActivity extends Activity {
         actions.addView(dangerButton("Delete", v -> confirmDelete(entry)), weightedParams(false));
         row.addView(actions);
         return row;
+    }
+
+    private String fxRateText(MoneyEntry entry) {
+        String rateDate = fxStore.getRateDate(entry);
+        return rateDate == null || rateDate.isEmpty()
+                ? "FX rate: pending historical rate"
+                : "FX rate: " + rateDate;
     }
 
     private void restoreEntry(MoneyEntry entry) {
@@ -338,6 +350,12 @@ public class ArchiveActivity extends Activity {
     private int color(int resource) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) return getColor(resource);
         return getResources().getColor(resource);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (fxStore != null) fxStore.close();
+        super.onDestroy();
     }
 
     private void toast(String message) {
