@@ -42,6 +42,11 @@ public final class EntryFxStore extends SQLiteOpenHelper {
         return readRow(entry) != null;
     }
 
+    public String getRateDate(MoneyEntry entry) {
+        LockedRow row = readRow(entry);
+        return row == null ? null : row.rateDate;
+    }
+
     public int countMissing(Iterable<MoneyEntry> entries) {
         int count = 0;
         for (MoneyEntry entry : entries) {
