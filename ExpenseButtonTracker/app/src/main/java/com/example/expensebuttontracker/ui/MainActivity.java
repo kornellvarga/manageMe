@@ -505,7 +505,7 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(126));
+        row.setMinimumHeight(dp(148));
         row.setPadding(dp(14), dp(14), dp(14), dp(14));
         row.setBackgroundResource(EntryType.INCOME.equals(entry.type)
                 ? R.drawable.rounded_income_tile
@@ -538,11 +538,12 @@ public class MainActivity extends Activity {
 
         TextView details = new TextView(this);
         details.setText(entry.category + "\n" +
-                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(entry.createdAtMillis)));
+                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(entry.createdAtMillis)) + "\n" +
+                fxRateText(entry));
         details.setTextSize(12);
         details.setTextColor(color(R.color.text_secondary));
         details.setPadding(0, dp(8), 0, 0);
-        details.setMaxLines(2);
+        details.setMaxLines(3);
         row.addView(details);
 
         row.setOnClickListener(v -> showEntryActions(entry));
@@ -553,10 +554,22 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    private String fxRateText(MoneyEntry entry) {
+        String rateDate = fxStore.getRateDate(entry);
+        if (rateDate == null || rateDate.isEmpty()) {
+            return "FX rate: pending historical rate";
+        }
+        String transactionDate = ExchangeRateStore.formatDate(entry.createdAtMillis);
+        if (!rateDate.equals(transactionDate)) {
+            return "FX rate: " + rateDate + " (latest available before transaction date)";
+        }
+        return "FX rate: " + rateDate;
+    }
+
     private void showEntryActions(MoneyEntry entry) {
         new AlertDialog.Builder(this)
                 .setTitle(entry.name)
-                .setMessage("Edit changes the transaction. Archive keeps it outside current totals. Delete removes it from current and archived history.")
+                .setMessage(fxRateText(entry) + "\n\nEdit changes the transaction. Archive keeps it outside current totals. Delete removes it from current and archived history.")
                 .setPositiveButton("Edit", (dialog, which) -> editEntry(entry))
                 .setNeutralButton("Archive", (dialog, which) -> archiveEntry(entry))
                 .setNegativeButton("Delete permanently", (dialog, which) -> confirmDelete(entry))
