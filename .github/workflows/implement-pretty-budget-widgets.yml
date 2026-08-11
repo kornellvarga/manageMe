@@ -1,0 +1,50 @@
+name: Implement pretty budget widgets
+
+on:
+  push:
+    branches: ["feature/pretty-budget-widgets"]
+    paths:
+      - "tools/implement_pretty_budget_widgets.py"
+      - ".github/workflows/implement-pretty-budget-widgets.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/pretty-budget-widgets
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply widget family patch
+        run: python tools/implement_pretty_budget_widgets.py
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify Android debug build
+        working-directory: ExpenseButtonTracker
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Commit verified widget implementation
+        run: |
+          rm -f tools/implement_pretty_budget_widgets.py .github/workflows/implement-pretty-budget-widgets.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "polish budget widget family"
+          git push origin HEAD:feature/pretty-budget-widgets
