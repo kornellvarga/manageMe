@@ -7,21 +7,26 @@ import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.widget.RemoteViews;
 
 import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.FinancePlanStore;
 import com.example.expensebuttontracker.ui.BudgetPlanActivity;
+import com.example.expensebuttontracker.ui.LockScreenQuickAddActivity;
+import com.example.expensebuttontracker.ui.QuickAddActivity;
 import com.example.expensebuttontracker.util.MoneyUtils;
+import com.example.expensebuttontracker.util.SettingsStore;
 
 import java.util.Calendar;
 
-/** Shared renderer for the four budget-widget personalities. */
+/** Shared renderer for the budget-widget personalities. */
 public class BudgetProgressWidget extends AppWidgetProvider {
     protected static final int MODE_MINIMAL = 1;
     protected static final int MODE_COMPACT = 2;
     protected static final int MODE_CARD = 3;
     protected static final int MODE_DETAILED = 4;
+    protected static final int MODE_COMPACT_ADD = 5;
 
     protected int widgetMode() {
         return MODE_CARD;
@@ -42,6 +47,7 @@ public class BudgetProgressWidget extends AppWidgetProvider {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
         updateProvider(context, manager, BudgetMinimalWidget.class, MODE_MINIMAL);
         updateProvider(context, manager, BudgetCompactWidget.class, MODE_COMPACT);
+        updateProvider(context, manager, BudgetCompactAddWidget.class, MODE_COMPACT_ADD);
         updateProvider(context, manager, BudgetProgressWidget.class, MODE_CARD);
         updateProvider(context, manager, BudgetDetailedWidget.class, MODE_DETAILED);
     }
@@ -65,6 +71,7 @@ public class BudgetProgressWidget extends AppWidgetProvider {
             String className = info.provider.getClassName();
             if (BudgetMinimalWidget.class.getName().equals(className)) mode = MODE_MINIMAL;
             else if (BudgetCompactWidget.class.getName().equals(className)) mode = MODE_COMPACT;
+            else if (BudgetCompactAddWidget.class.getName().equals(className)) mode = MODE_COMPACT_ADD;
             else if (BudgetDetailedWidget.class.getName().equals(className)) mode = MODE_DETAILED;
         }
         update(context, manager, appWidgetId, mode);
@@ -76,6 +83,7 @@ public class BudgetProgressWidget extends AppWidgetProvider {
             String className = info.provider.getClassName();
             if (BudgetMinimalWidget.class.getName().equals(className)) return "Minimal · one line";
             if (BudgetCompactWidget.class.getName().equals(className)) return "Compact";
+            if (BudgetCompactAddWidget.class.getName().equals(className)) return "Compact + Add";
             if (BudgetDetailedWidget.class.getName().equals(className)) return "Detailed";
         }
         return "Card";
@@ -94,12 +102,18 @@ public class BudgetProgressWidget extends AppWidgetProvider {
                 open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         views.setOnClickPendingIntent(R.id.widget_budget_root, pending);
+        if (mode == MODE_COMPACT_ADD) {
+            views.setOnClickPendingIntent(
+                    R.id.widget_budget_add_button,
+                    buildQuickAddPendingIntent(context, appWidgetId, budget));
+        }
         manager.updateAppWidget(appWidgetId, views);
     }
 
     private static int layoutForMode(int mode) {
         if (mode == MODE_MINIMAL) return R.layout.widget_budget_minimal;
         if (mode == MODE_COMPACT) return R.layout.widget_budget_compact;
+        if (mode == MODE_COMPACT_ADD) return R.layout.widget_budget_compact_add;
         if (mode == MODE_DETAILED) return R.layout.widget_budget_detailed;
         return R.layout.widget_budget_progress;
     }
@@ -183,6 +197,19 @@ public class BudgetProgressWidget extends AppWidgetProvider {
         if (!FinancePlanStore.currentMonth().equals(budget.month)) return 0;
         Calendar calendar = Calendar.getInstance();
         return calendar.getActualMaximum(Calendar.DAY_OF_MONTH) - calendar.get(Calendar.DAY_OF_MONTH) + 1;
+    }
+
+    private static PendingIntent buildQuickAddPendingIntent(Context context, int appWidgetId, FinancePlanStore.Budget budget) {
+        Class<?> targetActivity = SettingsStore.isLockScreenQuickAddEnabled(context)
+                ? LockScreenQuickAddActivity.class
+                : QuickAddActivity.class;
+        Intent intent = new Intent(context, targetActivity);
+        intent.setAction("com.example.expensebuttontracker.action.BUDGET_WIDGET_QUICK_ADD." + appWidgetId);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        if (budget != null) intent.putExtra(QuickAddActivity.EXTRA_BUDGET_ID, budget.id);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+        return PendingIntent.getActivity(context, 14000 + appWidgetId, intent, flags);
     }
 
     private static int color(Context context, int colorId) {
