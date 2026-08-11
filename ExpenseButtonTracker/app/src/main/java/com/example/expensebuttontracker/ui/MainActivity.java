@@ -37,6 +37,7 @@ import com.example.expensebuttontracker.data.ExpenseDbHelper;
 import com.example.expensebuttontracker.data.EntryFxStore;
 import com.example.expensebuttontracker.data.FinanceDuplicateCleaner;
 import com.example.expensebuttontracker.data.FinanceArchiveStore;
+import com.example.expensebuttontracker.data.FinancePlanStore;
 import com.example.expensebuttontracker.data.MoneyEntry;
 import com.example.expensebuttontracker.data.Totals;
 import com.example.expensebuttontracker.notification.LockScreenQuickAddNotification;
@@ -49,6 +50,7 @@ import com.example.expensebuttontracker.util.HistoricalRateBackfill;
 import com.example.expensebuttontracker.util.MoneyUtils;
 import com.example.expensebuttontracker.util.SettingsStore;
 import com.example.expensebuttontracker.widget.ExpenseQuickAddWidget;
+import com.example.expensebuttontracker.widget.BudgetProgressWidget;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -163,10 +165,12 @@ public class MainActivity extends Activity {
         addGridTile(actionsGrid, actionTile("Quick add", "Expense or income", R.drawable.rounded_income_tile, v -> openQuickAdd()), 0, false);
         addGridTile(actionsGrid, actionTile("Statistics", "Current data", R.drawable.rounded_tile, v -> startActivity(new Intent(this, StatisticsActivity.class))), 1, false);
         addGridTile(actionsGrid, actionTile("Categories", "Edit tiles", R.drawable.rounded_tile, v -> startActivity(new Intent(this, CategoriesActivity.class))), 2, false);
-        addGridTile(actionsGrid, actionTile("Widget", "Pin to home", R.drawable.rounded_tile, v -> requestPinWidget()), 3, false);
-        addGridTile(actionsGrid, actionTile("Quick tile", "Android shortcut", R.drawable.rounded_tile, v -> requestQuickSettingsTile()), 4, false);
-        addGridTile(actionsGrid, actionTile("Export CSV", "Save current entries", R.drawable.rounded_tile, v -> exportCsv()), 5, false);
-        addGridTile(actionsGrid, actionTile("Archive", "Old entries and bulk archive", R.drawable.rounded_tile, v -> startActivity(new Intent(this, ArchiveActivity.class))), 6, true);
+        addGridTile(actionsGrid, actionTile("Budget plan", "Monthly envelopes & bills", R.drawable.rounded_tile, v -> startActivity(new Intent(this, BudgetPlanActivity.class))), 3, false);
+        addGridTile(actionsGrid, actionTile("Budget widget", "Pocket Money gauge", R.drawable.rounded_tile, v -> requestPinBudgetWidget()), 4, false);
+        addGridTile(actionsGrid, actionTile("Quick-add widget", "Pin to home", R.drawable.rounded_tile, v -> requestPinWidget()), 5, false);
+        addGridTile(actionsGrid, actionTile("Quick tile", "Android shortcut", R.drawable.rounded_tile, v -> requestQuickSettingsTile()), 6, false);
+        addGridTile(actionsGrid, actionTile("Export CSV", "Save current entries", R.drawable.rounded_tile, v -> exportCsv()), 7, false);
+        addGridTile(actionsGrid, actionTile("Archive", "Old entries and bulk archive", R.drawable.rounded_tile, v -> startActivity(new Intent(this, ArchiveActivity.class))), 8, true);
         root.addView(actionsGrid);
 
         LinearLayout settingsCard = card(R.drawable.rounded_tile);
@@ -596,7 +600,9 @@ public class MainActivity extends Activity {
                 .setMessage(entry.name + " will be removed from active and archived history. Use Archive instead when you only want it excluded from current totals.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete", (dialog, which) -> {
+                    try { FinancePlanStore.removeEntryReferences(this, db.getEntrySyncId(entry.id)); } catch (Exception ignored) {}
                     db.deleteEntry(entry.id);
+                    BudgetProgressWidget.updateAll(this);
                     refreshDashboard();
                     syncNow(false);
                 })
@@ -621,6 +627,19 @@ public class MainActivity extends Activity {
 
         ComponentName provider = new ComponentName(this, ExpenseQuickAddWidget.class);
         manager.requestPinAppWidget(provider, null, null);
+    }
+
+    private void requestPinBudgetWidget() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            toast("Long-press your home screen, choose Widgets, then add Budget gauge.");
+            return;
+        }
+        AppWidgetManager manager = getSystemService(AppWidgetManager.class);
+        if (manager == null || !manager.isRequestPinAppWidgetSupported()) {
+            toast("Your launcher does not support automatic widget pinning. Add Budget gauge from the widget picker.");
+            return;
+        }
+        manager.requestPinAppWidget(new ComponentName(this, BudgetProgressWidget.class), null, null);
     }
 
     private void requestQuickSettingsTile() {

@@ -6,17 +6,15 @@
   "additionalProperties": false,
   "required": ["requestId", "profileId", "actor", "type", "payload"],
   "properties": {
-    "requestId": {
-      "type": "string",
-      "minLength": 3,
-      "maxLength": 96,
-      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{2,95}$"
-    },
+    "requestId": { "type": "string", "minLength": 3, "maxLength": 96, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{2,95}$" },
     "profileId": { "const": "kornel" },
     "actor": { "enum": ["kornel", "assistant", "web", "android"] },
-    "type": {
-      "enum": ["add_entry", "update_entry", "delete_entry", "add_category", "delete_category"]
-    },
+    "type": { "enum": [
+      "add_entry", "update_entry", "archive_entry", "restore_entry", "archive_before", "delete_entry",
+      "add_category", "delete_category", "add_budget", "update_budget", "delete_budget",
+      "add_commitment", "update_commitment", "delete_commitment", "link_commitment",
+      "set_allocation", "delete_allocation"
+    ] },
     "payload": { "type": "object" }
   }
 }

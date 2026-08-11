@@ -12,6 +12,39 @@ export interface FinanceCategory {
   deletedAtMillis?: number;
 }
 
+export interface FinanceBudget {
+  id: string;
+  name: string;
+  month: string;
+  amountCents: number;
+  currencyCode: FinanceCurrency;
+  updatedAtMillis: number;
+  deletedAtMillis?: number;
+}
+
+export interface FinanceCommitment {
+  id: string;
+  name: string;
+  month: string;
+  plannedAmountCents: number;
+  currencyCode: FinanceCurrency;
+  category: string;
+  dueDate?: string;
+  repeatMonthly: boolean;
+  linkedEntryId?: string;
+  updatedAtMillis: number;
+  deletedAtMillis?: number;
+}
+
+export interface FinanceAllocation {
+  id: string;
+  entryId: string;
+  budgetId: string;
+  amountCents: number;
+  updatedAtMillis: number;
+  deletedAtMillis?: number;
+}
+
 export interface FinanceEntry {
   id: string;
   type: FinanceEntryType;
@@ -32,6 +65,9 @@ export interface FinanceLedger {
   profileId: "kornel";
   entries: FinanceEntry[];
   categories: FinanceCategory[];
+  budgets?: FinanceBudget[];
+  commitments?: FinanceCommitment[];
+  allocations?: FinanceAllocation[];
   appliedRequestIds: string[];
   updatedAt: string;
 }
@@ -41,6 +77,9 @@ export interface FinanceSnapshot {
   deviceId?: string;
   entries: unknown[];
   categories: unknown[];
+  budgets?: unknown[];
+  commitments?: unknown[];
+  allocations?: unknown[];
 }
 
 export interface FinanceCommand {
@@ -55,7 +94,16 @@ export interface FinanceCommand {
     | "archive_before"
     | "delete_entry"
     | "add_category"
-    | "delete_category";
+    | "delete_category"
+    | "add_budget"
+    | "update_budget"
+    | "delete_budget"
+    | "add_commitment"
+    | "update_commitment"
+    | "delete_commitment"
+    | "link_commitment"
+    | "set_allocation"
+    | "delete_allocation";
   payload: Record<string, unknown>;
 }
 
@@ -69,6 +117,13 @@ function generatedId(prefix: string): string {
 function cleanId(value: unknown, fallbackPrefix: string): string {
   const candidate = typeof value === "string" ? value.trim() : "";
   if (!candidate) return generatedId(fallbackPrefix);
+  if (!ID_PATTERN.test(candidate)) throw new Error("Finance id contains unsupported characters.");
+  return candidate.slice(0, 96).toLowerCase();
+}
+
+function optionalId(value: unknown): string | undefined {
+  const candidate = typeof value === "string" ? value.trim() : "";
+  if (!candidate) return undefined;
   if (!ID_PATTERN.test(candidate)) throw new Error("Finance id contains unsupported characters.");
   return candidate.slice(0, 96).toLowerCase();
 }
@@ -111,6 +166,21 @@ export function normalizeFinanceCurrency(value: unknown): FinanceCurrency {
   if (normalized === "TL") return "TRY";
   if (normalized === "HUF" || normalized === "EUR" || normalized === "TRY") return normalized;
   throw new Error("Currency must be HUF, EUR, or TRY/TL.");
+}
+
+export function normalizeFinanceMonth(value: unknown): string {
+  const month = String(value || "").trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Month must use YYYY-MM.");
+  return month;
+}
+
+function optionalIsoDate(value: unknown): string | undefined {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || !Number.isFinite(Date.parse(`${text}T00:00:00Z`))) {
+    throw new Error("Due date must use YYYY-MM-DD.");
+  }
+  return text;
 }
 
 function normalizeActor(value: unknown, fallback: FinanceActor): FinanceActor {
@@ -164,6 +234,55 @@ export function sanitizeFinanceCategory(value: unknown): FinanceCategory {
   };
 }
 
+
+export function sanitizeFinanceBudget(value: unknown): FinanceBudget {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Finance budget must be an object.");
+  const input = value as Record<string, unknown>;
+  const updatedAtMillis = timestamp(input.updatedAtMillis, "Budget update date");
+  return {
+    id: cleanId(input.id, "budget"),
+    name: cleanText(input.name, "Budget name", 120),
+    month: normalizeFinanceMonth(input.month),
+    amountCents: integer(input.amountCents, "Budget amount", 1),
+    currencyCode: normalizeFinanceCurrency(input.currencyCode),
+    updatedAtMillis,
+    deletedAtMillis: optionalTimestamp(input.deletedAtMillis, "Budget deletion date", updatedAtMillis),
+  };
+}
+
+export function sanitizeFinanceCommitment(value: unknown): FinanceCommitment {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Finance commitment must be an object.");
+  const input = value as Record<string, unknown>;
+  const updatedAtMillis = timestamp(input.updatedAtMillis, "Commitment update date");
+  return {
+    id: cleanId(input.id, "commitment"),
+    name: cleanText(input.name, "Commitment name", 180),
+    month: normalizeFinanceMonth(input.month),
+    plannedAmountCents: integer(input.plannedAmountCents, "Planned amount", 1),
+    currencyCode: normalizeFinanceCurrency(input.currencyCode),
+    category: optionalText(input.category, 120) || "Bills",
+    dueDate: optionalIsoDate(input.dueDate),
+    repeatMonthly: Boolean(input.repeatMonthly),
+    linkedEntryId: optionalId(input.linkedEntryId),
+    updatedAtMillis,
+    deletedAtMillis: optionalTimestamp(input.deletedAtMillis, "Commitment deletion date", updatedAtMillis),
+  };
+}
+
+export function sanitizeFinanceAllocation(value: unknown): FinanceAllocation {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Finance allocation must be an object.");
+  const input = value as Record<string, unknown>;
+  const updatedAtMillis = timestamp(input.updatedAtMillis, "Allocation update date");
+  return {
+    id: cleanId(input.id, "allocation"),
+    entryId: cleanId(input.entryId, "money"),
+    budgetId: cleanId(input.budgetId, "budget"),
+    amountCents: integer(input.amountCents, "Allocation amount", 1),
+    updatedAtMillis,
+    deletedAtMillis: optionalTimestamp(input.deletedAtMillis, "Allocation deletion date", updatedAtMillis),
+  };
+}
+
 export function createEmptyFinanceLedger(now = new Date()): FinanceLedger {
   return {
     schemaVersion: 1,
@@ -171,6 +290,9 @@ export function createEmptyFinanceLedger(now = new Date()): FinanceLedger {
     profileId: "kornel",
     entries: [],
     categories: [],
+    budgets: [],
+    commitments: [],
+    allocations: [],
     appliedRequestIds: [],
     updatedAt: now.toISOString(),
   };
@@ -181,9 +303,15 @@ export function isFinanceLedger(value: unknown): value is FinanceLedger {
   const ledger = value as Partial<FinanceLedger>;
   if (ledger.schemaVersion !== 1 || ledger.profileId !== "kornel" || !Number.isInteger(ledger.revision)) return false;
   if (!Array.isArray(ledger.entries) || !Array.isArray(ledger.categories) || !Array.isArray(ledger.appliedRequestIds)) return false;
+  if (ledger.budgets !== undefined && !Array.isArray(ledger.budgets)) return false;
+  if (ledger.commitments !== undefined && !Array.isArray(ledger.commitments)) return false;
+  if (ledger.allocations !== undefined && !Array.isArray(ledger.allocations)) return false;
   try {
     ledger.entries.forEach((entry) => sanitizeFinanceEntry(entry, "system"));
     ledger.categories.forEach((category) => sanitizeFinanceCategory(category));
+    (ledger.budgets || []).forEach((budget) => sanitizeFinanceBudget(budget));
+    (ledger.commitments || []).forEach((commitment) => sanitizeFinanceCommitment(commitment));
+    (ledger.allocations || []).forEach((allocation) => sanitizeFinanceAllocation(allocation));
     return true;
   } catch {
     return false;
@@ -193,7 +321,13 @@ export function isFinanceLedger(value: unknown): value is FinanceLedger {
 export function isFinanceSnapshot(value: unknown): value is FinanceSnapshot {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const snapshot = value as Partial<FinanceSnapshot>;
-  return typeof snapshot.requestId === "string" && ID_PATTERN.test(snapshot.requestId) && Array.isArray(snapshot.entries) && Array.isArray(snapshot.categories);
+  return typeof snapshot.requestId === "string"
+    && ID_PATTERN.test(snapshot.requestId)
+    && Array.isArray(snapshot.entries)
+    && Array.isArray(snapshot.categories)
+    && (snapshot.budgets === undefined || Array.isArray(snapshot.budgets))
+    && (snapshot.commitments === undefined || Array.isArray(snapshot.commitments))
+    && (snapshot.allocations === undefined || Array.isArray(snapshot.allocations));
 }
 
 export function isFinanceCommand(value: unknown): value is FinanceCommand {
@@ -212,6 +346,15 @@ export function isFinanceCommand(value: unknown): value is FinanceCommand {
       "delete_entry",
       "add_category",
       "delete_category",
+      "add_budget",
+      "update_budget",
+      "delete_budget",
+      "add_commitment",
+      "update_commitment",
+      "delete_commitment",
+      "link_commitment",
+      "set_allocation",
+      "delete_allocation",
     ].includes(String(command.type))
     && Boolean(command.payload)
     && typeof command.payload === "object"
@@ -237,6 +380,18 @@ function sortedEntries(entries: FinanceEntry[]): FinanceEntry[] {
 
 function sortedCategories(categories: FinanceCategory[]): FinanceCategory[] {
   return [...categories].sort((a, b) => a.type.localeCompare(b.type) || a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+}
+
+function sortedBudgets(budgets: FinanceBudget[]): FinanceBudget[] {
+  return [...budgets].sort((a, b) => b.month.localeCompare(a.month) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+function sortedCommitments(commitments: FinanceCommitment[]): FinanceCommitment[] {
+  return [...commitments].sort((a, b) => b.month.localeCompare(a.month) || (a.dueDate || "9999-99-99").localeCompare(b.dueDate || "9999-99-99") || a.name.localeCompare(b.name));
+}
+
+function sortedAllocations(allocations: FinanceAllocation[]): FinanceAllocation[] {
+  return [...allocations].sort((a, b) => a.entryId.localeCompare(b.entryId) || a.budgetId.localeCompare(b.budgetId) || a.id.localeCompare(b.id));
 }
 
 
@@ -294,9 +449,17 @@ export function dedupeFinanceLedger(
 export function mergeFinanceSnapshot(current: FinanceLedger, snapshot: FinanceSnapshot): { ledger: FinanceLedger; changed: boolean } {
   const incomingEntries = snapshot.entries.map((entry) => sanitizeFinanceEntry(entry, "android"));
   const incomingCategories = snapshot.categories.map((category) => sanitizeFinanceCategory(category));
+  const incomingBudgets = (snapshot.budgets || []).map((budget) => sanitizeFinanceBudget(budget));
+  const incomingCommitments = (snapshot.commitments || []).map((commitment) => sanitizeFinanceCommitment(commitment));
+  const incomingAllocations = (snapshot.allocations || []).map((allocation) => sanitizeFinanceAllocation(allocation));
   const entryMerge = mergeByUpdatedAt(current.entries, incomingEntries);
   const categoryMerge = mergeByUpdatedAt(current.categories, incomingCategories);
-  if (!entryMerge.changed && !categoryMerge.changed) return { ledger: current, changed: false };
+  const budgetMerge = mergeByUpdatedAt(current.budgets || [], incomingBudgets);
+  const commitmentMerge = mergeByUpdatedAt(current.commitments || [], incomingCommitments);
+  const allocationMerge = mergeByUpdatedAt(current.allocations || [], incomingAllocations);
+  if (!entryMerge.changed && !categoryMerge.changed && !budgetMerge.changed && !commitmentMerge.changed && !allocationMerge.changed) {
+    return { ledger: current, changed: false };
+  }
   const now = new Date();
   return {
     ledger: {
@@ -304,6 +467,9 @@ export function mergeFinanceSnapshot(current: FinanceLedger, snapshot: FinanceSn
       revision: current.revision + 1,
       entries: sortedEntries(entryMerge.values),
       categories: sortedCategories(categoryMerge.values),
+      budgets: sortedBudgets(budgetMerge.values),
+      commitments: sortedCommitments(commitmentMerge.values),
+      allocations: sortedAllocations(allocationMerge.values),
       updatedAt: now.toISOString(),
     },
     changed: true,
@@ -325,6 +491,24 @@ function findCategory(ledger: FinanceLedger, id: unknown): FinanceCategory {
   const category = ledger.categories.find((item) => item.id === String(id || "").toLowerCase());
   if (!category) throw new Error("Finance category not found.");
   return category;
+}
+
+function findBudget(ledger: FinanceLedger, id: unknown): FinanceBudget {
+  const budget = (ledger.budgets || []).find((item) => item.id === String(id || "").toLowerCase());
+  if (!budget) throw new Error("Finance budget not found.");
+  return budget;
+}
+
+function findCommitment(ledger: FinanceLedger, id: unknown): FinanceCommitment {
+  const commitment = (ledger.commitments || []).find((item) => item.id === String(id || "").toLowerCase());
+  if (!commitment) throw new Error("Finance commitment not found.");
+  return commitment;
+}
+
+function findAllocation(ledger: FinanceLedger, id: unknown): FinanceAllocation {
+  const allocation = (ledger.allocations || []).find((item) => item.id === String(id || "").toLowerCase());
+  if (!allocation) throw new Error("Finance allocation not found.");
+  return allocation;
 }
 
 export function applyFinanceCommand(
@@ -441,6 +625,140 @@ export function applyFinanceCommand(
       entityId = category.id;
       break;
     }
+    case "add_budget": {
+      const budget = sanitizeFinanceBudget({
+        ...command.payload,
+        id: command.payload.id || generatedId("budget"),
+        updatedAtMillis: nowMillis,
+      });
+      next.budgets ||= [];
+      const existing = next.budgets.find((item) => !item.deletedAtMillis
+        && item.month === budget.month
+        && item.currencyCode === budget.currencyCode
+        && item.name.toLocaleLowerCase() === budget.name.toLocaleLowerCase());
+      if (existing) {
+        entityId = existing.id;
+        break;
+      }
+      if (next.budgets.some((item) => item.id === budget.id)) throw new Error("Finance budget id already exists.");
+      next.budgets.push(budget);
+      entityId = budget.id;
+      break;
+    }
+    case "update_budget": {
+      const budget = findBudget(next, command.payload.id);
+      if (budget.deletedAtMillis) throw new Error("Deleted finance budget cannot be updated.");
+      if ("name" in command.payload) budget.name = cleanText(command.payload.name, "Budget name", 120);
+      if ("month" in command.payload) budget.month = normalizeFinanceMonth(command.payload.month);
+      if ("amountCents" in command.payload) budget.amountCents = integer(command.payload.amountCents, "Budget amount", 1);
+      if ("currencyCode" in command.payload) budget.currencyCode = normalizeFinanceCurrency(command.payload.currencyCode);
+      budget.updatedAtMillis = nowMillis;
+      entityId = budget.id;
+      break;
+    }
+    case "delete_budget": {
+      const budget = findBudget(next, command.payload.id);
+      budget.deletedAtMillis = nowMillis;
+      budget.updatedAtMillis = nowMillis;
+      entityId = budget.id;
+      break;
+    }
+    case "add_commitment": {
+      const commitment = sanitizeFinanceCommitment({
+        ...command.payload,
+        id: command.payload.id || generatedId("commitment"),
+        updatedAtMillis: nowMillis,
+      });
+      next.commitments ||= [];
+      if (next.commitments.some((item) => item.id === commitment.id)) throw new Error("Finance commitment id already exists.");
+      next.commitments.push(commitment);
+      entityId = commitment.id;
+      break;
+    }
+    case "update_commitment": {
+      const commitment = findCommitment(next, command.payload.id);
+      if (commitment.deletedAtMillis) throw new Error("Deleted finance commitment cannot be updated.");
+      if ("name" in command.payload) commitment.name = cleanText(command.payload.name, "Commitment name", 180);
+      if ("month" in command.payload) commitment.month = normalizeFinanceMonth(command.payload.month);
+      if ("plannedAmountCents" in command.payload) commitment.plannedAmountCents = integer(command.payload.plannedAmountCents, "Planned amount", 1);
+      if ("currencyCode" in command.payload) commitment.currencyCode = normalizeFinanceCurrency(command.payload.currencyCode);
+      if ("category" in command.payload) commitment.category = cleanText(command.payload.category, "Category", 120);
+      if ("dueDate" in command.payload) commitment.dueDate = optionalIsoDate(command.payload.dueDate);
+      if ("repeatMonthly" in command.payload) commitment.repeatMonthly = Boolean(command.payload.repeatMonthly);
+      commitment.updatedAtMillis = nowMillis;
+      entityId = commitment.id;
+      break;
+    }
+    case "delete_commitment": {
+      const commitment = findCommitment(next, command.payload.id);
+      commitment.deletedAtMillis = nowMillis;
+      commitment.updatedAtMillis = nowMillis;
+      entityId = commitment.id;
+      break;
+    }
+    case "link_commitment": {
+      const commitment = findCommitment(next, command.payload.id);
+      if (commitment.deletedAtMillis) throw new Error("Deleted finance commitment cannot be linked.");
+      const entryId = optionalId(command.payload.entryId);
+      if (!entryId) {
+        commitment.linkedEntryId = undefined;
+      } else {
+        const entry = findEntry(next, entryId);
+        if (entry.deletedAtMillis) throw new Error("Deleted finance entry cannot satisfy a commitment.");
+        if (entry.type !== "EXPENSE") throw new Error("Only an expense can satisfy a planned payment.");
+        if (entry.currencyCode !== commitment.currencyCode) throw new Error("Payment currency must match the planned payment currency.");
+        commitment.linkedEntryId = entry.id;
+      }
+      commitment.updatedAtMillis = nowMillis;
+      entityId = commitment.id;
+      break;
+    }
+    case "set_allocation": {
+      const entry = findEntry(next, command.payload.entryId);
+      const budget = findBudget(next, command.payload.budgetId);
+      if (entry.deletedAtMillis) throw new Error("Deleted finance entry cannot be allocated.");
+      if (budget.deletedAtMillis) throw new Error("Deleted finance budget cannot receive allocations.");
+      if (entry.type !== "EXPENSE") throw new Error("Only expenses can be allocated to spending budgets.");
+      if (entry.currencyCode !== budget.currencyCode) throw new Error("Expense currency must match the budget currency.");
+      const amountCents = command.payload.amountCents === undefined
+        ? entry.amountCents
+        : integer(command.payload.amountCents, "Allocation amount", 1, entry.amountCents);
+      next.allocations ||= [];
+      const requestedId = optionalId(command.payload.id);
+      let allocation = requestedId ? next.allocations.find((item) => item.id === requestedId) : undefined;
+      if (!allocation) {
+        allocation = next.allocations.find((item) => !item.deletedAtMillis && item.entryId === entry.id && item.budgetId === budget.id);
+      }
+      const otherAllocated = next.allocations
+        .filter((item) => !item.deletedAtMillis && item.entryId === entry.id && item.id !== allocation?.id)
+        .reduce((sum, item) => sum + item.amountCents, 0);
+      if (otherAllocated + amountCents > entry.amountCents) throw new Error("Budget allocations cannot exceed the expense amount.");
+      if (allocation) {
+        allocation.entryId = entry.id;
+        allocation.budgetId = budget.id;
+        allocation.amountCents = amountCents;
+        allocation.updatedAtMillis = nowMillis;
+        allocation.deletedAtMillis = undefined;
+      } else {
+        allocation = sanitizeFinanceAllocation({
+          id: requestedId || generatedId("allocation"),
+          entryId: entry.id,
+          budgetId: budget.id,
+          amountCents,
+          updatedAtMillis: nowMillis,
+        });
+        next.allocations.push(allocation);
+      }
+      entityId = allocation.id;
+      break;
+    }
+    case "delete_allocation": {
+      const allocation = findAllocation(next, command.payload.id);
+      allocation.deletedAtMillis = nowMillis;
+      allocation.updatedAtMillis = nowMillis;
+      entityId = allocation.id;
+      break;
+    }
     default:
       throw new Error("Unsupported finance command.");
   }
@@ -449,6 +767,9 @@ export function applyFinanceCommand(
   next.revision += 1;
   next.entries = sortedEntries(next.entries);
   next.categories = sortedCategories(next.categories);
+  next.budgets = sortedBudgets(next.budgets || []);
+  next.commitments = sortedCommitments(next.commitments || []);
+  next.allocations = sortedAllocations(next.allocations || []);
   next.updatedAt = now.toISOString();
   return { ledger: next, changed: true, entityId, affectedCount };
 }
@@ -505,4 +826,41 @@ export function financeSummary(
     byCategory: [...category.values()]
       .sort((a, b) => b.expenseCents - a.expenseCents || b.incomeCents - a.incomeCents || a.category.localeCompare(b.category)),
   };
+}
+
+
+export interface FinancePlanSummary {
+  month: string;
+  budgets: Array<FinanceBudget & { spentCents: number; remainingCents: number; percentUsed: number }>;
+  commitments: Array<FinanceCommitment & { paid: boolean; actualAmountCents?: number; actualEntryName?: string }>;
+}
+
+export function financePlanSummary(ledger: FinanceLedger, rawMonth: unknown): FinancePlanSummary {
+  const month = normalizeFinanceMonth(rawMonth);
+  const liveEntries = new Map(ledger.entries.filter((entry) => !entry.deletedAtMillis).map((entry) => [entry.id, entry]));
+  const allocations = (ledger.allocations || []).filter((allocation) => !allocation.deletedAtMillis);
+  const budgets = (ledger.budgets || [])
+    .filter((budget) => !budget.deletedAtMillis && budget.month === month)
+    .map((budget) => {
+      const spentCents = allocations
+        .filter((allocation) => allocation.budgetId === budget.id && liveEntries.has(allocation.entryId))
+        .reduce((sum, allocation) => sum + allocation.amountCents, 0);
+      return {
+        ...budget,
+        spentCents,
+        remainingCents: budget.amountCents - spentCents,
+        percentUsed: Math.round((spentCents / budget.amountCents) * 1000) / 10,
+      };
+    });
+  const commitments = (ledger.commitments || [])
+    .filter((commitment) => !commitment.deletedAtMillis && commitment.month === month)
+    .map((commitment) => {
+      const entry = commitment.linkedEntryId ? liveEntries.get(commitment.linkedEntryId) : undefined;
+      return {
+        ...commitment,
+        paid: Boolean(entry),
+        ...(entry ? { actualAmountCents: entry.amountCents, actualEntryName: entry.name } : {}),
+      };
+    });
+  return { month, budgets, commitments };
 }
