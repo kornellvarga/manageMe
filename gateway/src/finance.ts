@@ -829,10 +829,35 @@ export function financeSummary(
 }
 
 
+export interface FinancePlanInsight {
+  kind: "budget" | "commitment";
+  id: string;
+  name: string;
+  amountCents: number;
+  currencyCode: FinanceCurrency;
+}
+
 export interface FinancePlanSummary {
   month: string;
-  budgets: Array<FinanceBudget & { spentCents: number; remainingCents: number; percentUsed: number }>;
-  commitments: Array<FinanceCommitment & { paid: boolean; actualAmountCents?: number; actualEntryName?: string }>;
+  budgets: Array<FinanceBudget & {
+    spentCents: number;
+    remainingCents: number;
+    percentUsed: number;
+    status: "available" | "exhausted" | "overspent";
+  }>;
+  commitments: Array<FinanceCommitment & {
+    paid: boolean;
+    actualAmountCents?: number;
+    actualEntryName?: string;
+    varianceCents?: number;
+    status: "unpaid" | "on_plan" | "under_plan" | "over_plan";
+  }>;
+  insights: {
+    overspent: FinancePlanInsight[];
+    available: FinancePlanInsight[];
+    underPlan: FinancePlanInsight[];
+    unpaid: FinancePlanInsight[];
+  };
 }
 
 export function financePlanSummary(ledger: FinanceLedger, rawMonth: unknown): FinancePlanSummary {
@@ -845,22 +870,60 @@ export function financePlanSummary(ledger: FinanceLedger, rawMonth: unknown): Fi
       const spentCents = allocations
         .filter((allocation) => allocation.budgetId === budget.id && liveEntries.has(allocation.entryId))
         .reduce((sum, allocation) => sum + allocation.amountCents, 0);
+      const remainingCents = budget.amountCents - spentCents;
       return {
         ...budget,
         spentCents,
-        remainingCents: budget.amountCents - spentCents,
+        remainingCents,
         percentUsed: Math.round((spentCents / budget.amountCents) * 1000) / 10,
+        status: remainingCents < 0 ? "overspent" as const : remainingCents === 0 ? "exhausted" as const : "available" as const,
       };
     });
   const commitments = (ledger.commitments || [])
     .filter((commitment) => !commitment.deletedAtMillis && commitment.month === month)
     .map((commitment) => {
       const entry = commitment.linkedEntryId ? liveEntries.get(commitment.linkedEntryId) : undefined;
+      const varianceCents = entry ? entry.amountCents - commitment.plannedAmountCents : undefined;
+      const status = !entry
+        ? "unpaid" as const
+        : varianceCents! > 0
+          ? "over_plan" as const
+          : varianceCents! < 0
+            ? "under_plan" as const
+            : "on_plan" as const;
       return {
         ...commitment,
         paid: Boolean(entry),
-        ...(entry ? { actualAmountCents: entry.amountCents, actualEntryName: entry.name } : {}),
+        status,
+        ...(entry ? {
+          actualAmountCents: entry.amountCents,
+          actualEntryName: entry.name,
+          varianceCents,
+        } : {}),
       };
     });
-  return { month, budgets, commitments };
+
+  const insights = {
+    overspent: [] as FinancePlanInsight[],
+    available: [] as FinancePlanInsight[],
+    underPlan: [] as FinancePlanInsight[],
+    unpaid: [] as FinancePlanInsight[],
+  };
+  for (const budget of budgets) {
+    if (budget.status === "overspent") {
+      insights.overspent.push({ kind: "budget", id: budget.id, name: budget.name, amountCents: Math.abs(budget.remainingCents), currencyCode: budget.currencyCode });
+    } else if (budget.status === "available") {
+      insights.available.push({ kind: "budget", id: budget.id, name: budget.name, amountCents: budget.remainingCents, currencyCode: budget.currencyCode });
+    }
+  }
+  for (const commitment of commitments) {
+    if (commitment.status === "over_plan") {
+      insights.overspent.push({ kind: "commitment", id: commitment.id, name: commitment.name, amountCents: commitment.varianceCents || 0, currencyCode: commitment.currencyCode });
+    } else if (commitment.status === "under_plan") {
+      insights.underPlan.push({ kind: "commitment", id: commitment.id, name: commitment.name, amountCents: Math.abs(commitment.varianceCents || 0), currencyCode: commitment.currencyCode });
+    } else if (commitment.status === "unpaid") {
+      insights.unpaid.push({ kind: "commitment", id: commitment.id, name: commitment.name, amountCents: commitment.plannedAmountCents, currencyCode: commitment.currencyCode });
+    }
+  }
+  return { month, budgets, commitments, insights };
 }

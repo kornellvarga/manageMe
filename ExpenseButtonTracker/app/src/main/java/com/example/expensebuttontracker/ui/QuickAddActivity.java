@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -57,6 +58,11 @@ public class QuickAddActivity extends Activity {
     private String presetName = "";
     private Spinner budgetSpinner;
     private List<FinancePlanStore.Budget> budgetChoices;
+    private Spinner commitmentSpinner;
+    private List<FinancePlanStore.Commitment> commitmentChoices;
+    private TextView commitmentHint;
+    private EditText amountInputField;
+    private EditText nameInputField;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -213,6 +219,7 @@ public class QuickAddActivity extends Activity {
         root.addView(details);
 
         EditText amountInput = new EditText(this);
+        amountInputField = amountInput;
         amountInput.setHint("Amount, e.g. 12.50");
         amountInput.setTextSize(24);
         amountInput.setSingleLine(true);
@@ -237,6 +244,7 @@ public class QuickAddActivity extends Activity {
         root.addView(spacer(10));
 
         EditText nameInput = new EditText(this);
+        nameInputField = nameInput;
         nameInput.setHint("Optional name - default is " + selectedCategory + " #next");
         nameInput.setTextSize(18);
         nameInput.setSingleLine(true);
@@ -248,12 +256,26 @@ public class QuickAddActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         if (EntryType.EXPENSE.equals(selectedType)) {
+            root.addView(spacer(12));
+            root.addView(label("Planned expense / bill (optional)", 16, true));
+            commitmentSpinner = new Spinner(this);
+            root.addView(commitmentSpinner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            commitmentHint = new TextView(this);
+            commitmentHint.setTextSize(13);
+            commitmentHint.setTextColor(color(R.color.text_secondary));
+            commitmentHint.setPadding(0, dp(4), 0, dp(2));
+            root.addView(commitmentHint);
+            rebuildCommitmentSpinner();
+
             root.addView(spacer(10));
-            root.addView(label("Budget (optional)", 16, true));
+            root.addView(label("Spending budget (optional)", 16, true));
             budgetSpinner = new Spinner(this);
             root.addView(budgetSpinner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             rebuildBudgetSpinner();
         } else {
+            commitmentSpinner = null;
+            commitmentChoices = null;
+            commitmentHint = null;
             budgetSpinner = null;
             budgetChoices = null;
         }
@@ -296,11 +318,17 @@ public class QuickAddActivity extends Activity {
                 selectedBudgetId = budget.id;
                 budgetName = budget.name;
             }
-            if (commitmentId != null && !commitmentId.isEmpty()) FinancePlanStore.linkCommitment(this, commitmentId, syncId, selectedCurrency);
+            String plannedName = "";
+            if (commitmentId != null && !commitmentId.isEmpty()) {
+                FinancePlanStore.Commitment planned = FinancePlanStore.getCommitment(this, commitmentId);
+                FinancePlanStore.linkCommitment(this, commitmentId, syncId, selectedCurrency);
+                plannedName = planned == null ? "planned payment" : planned.name;
+            }
             SettingsStore.setEntryCurrency(this, selectedCurrency);
             BudgetProgressWidget.updateAll(this);
-            String budgetSuffix = budgetName.isEmpty() ? "" : " · " + budgetName;
-            Toast.makeText(this, "Saved " + MoneyUtils.formatCents(cents, selectedCurrency) + " as " + selectedCategory + budgetSuffix, Toast.LENGTH_SHORT).show();
+            String linkSuffix = budgetName.isEmpty() ? "" : " · budget " + budgetName;
+            if (!plannedName.isEmpty()) linkSuffix += " · plan " + plannedName;
+            Toast.makeText(this, "Saved " + MoneyUtils.formatCents(cents, selectedCurrency) + " as " + selectedCategory + linkSuffix, Toast.LENGTH_SHORT).show();
             setResult(RESULT_OK, new Intent().putExtra("entry_id", id));
             FinanceSyncClient.syncAsync(this);
             finish();
@@ -322,9 +350,65 @@ public class QuickAddActivity extends Activity {
             selectedCurrency = currencyCode;
             SettingsStore.setEntryCurrency(this, currencyCode);
             updateCurrencyButtons(currencyRow);
+            rebuildCommitmentSpinner();
             rebuildBudgetSpinner();
         });
         return button;
+    }
+
+    private void rebuildCommitmentSpinner() {
+        if (commitmentSpinner == null) return;
+        commitmentChoices = new java.util.ArrayList<>();
+        java.util.ArrayList<String> labels = new java.util.ArrayList<>();
+        labels.add("No planned expense");
+        int selectedIndex = 0;
+        for (FinancePlanStore.Commitment planned : FinancePlanStore.listCommitments(this, FinancePlanStore.currentMonth())) {
+            if (planned.isPaid() || !planned.currencyCode.equals(selectedCurrency)) continue;
+            commitmentChoices.add(planned);
+            labels.add(planned.name + " · planned " + MoneyUtils.formatCents(planned.plannedAmountCents, planned.currencyCode));
+            if (planned.id.equals(commitmentId)) selectedIndex = labels.size() - 1;
+        }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, labels);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        commitmentSpinner.setAdapter(adapter);
+        commitmentSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                applyCommitmentSelection(position);
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                commitmentId = null;
+            }
+        });
+        commitmentSpinner.setSelection(selectedIndex);
+        applyCommitmentSelection(selectedIndex);
+    }
+
+    private void applyCommitmentSelection(int position) {
+        if (commitmentHint == null) return;
+        if (position <= 0 || commitmentChoices == null || position > commitmentChoices.size()) {
+            commitmentId = null;
+            commitmentHint.setText(commitmentChoices == null || commitmentChoices.isEmpty()
+                    ? "No open planned expenses in this currency for the current month."
+                    : "Leave this unlinked when the purchase was not planned in advance.");
+            return;
+        }
+        FinancePlanStore.Commitment planned = commitmentChoices.get(position - 1);
+        commitmentId = planned.id;
+        if (amountInputField != null && amountInputField.getText().toString().trim().isEmpty()) {
+            amountInputField.setText(MoneyUtils.formatPlainDecimal(planned.plannedAmountCents));
+            amountInputField.setSelection(amountInputField.getText().length());
+        }
+        if (nameInputField != null && nameInputField.getText().toString().trim().isEmpty()) {
+            nameInputField.setText(planned.name);
+        }
+        String categoryNote = planned.category.equalsIgnoreCase(selectedCategory)
+                ? ""
+                : " · planned category " + planned.category + "; transaction stays " + selectedCategory;
+        commitmentHint.setText("Planned " + MoneyUtils.formatCents(planned.plannedAmountCents, planned.currencyCode)
+                + " · enter the real amount even when it differs" + categoryNote);
     }
 
     private void rebuildBudgetSpinner() {

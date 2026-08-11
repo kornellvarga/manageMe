@@ -24,7 +24,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.example.expensebuttontracker.R;
+import com.example.expensebuttontracker.data.ExpenseDbHelper;
 import com.example.expensebuttontracker.data.FinancePlanStore;
+import com.example.expensebuttontracker.data.MoneyEntry;
 import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.MoneyUtils;
@@ -35,16 +37,19 @@ import com.example.expensebuttontracker.widget.BudgetProgressWidget;
 
 import org.json.JSONException;
 
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
 
 public class BudgetPlanActivity extends Activity {
     private LinearLayout root;
     private String selectedMonth;
+    private ExpenseDbHelper db;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        db = new ExpenseDbHelper(this);
         selectedMonth = FinancePlanStore.currentMonth();
         buildShell();
         render();
@@ -55,6 +60,12 @@ public class BudgetPlanActivity extends Activity {
         super.onResume();
         render();
         FinanceSyncClient.syncAsync(this, (synced, message) -> render());
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (db != null) db.close();
+        super.onDestroy();
     }
 
     private void buildShell() {
@@ -85,14 +96,18 @@ public class BudgetPlanActivity extends Activity {
         monthRow.addView(smallButton("›", v -> { selectedMonth = FinancePlanStore.shiftMonth(selectedMonth, 1); render(); }), weighted(false));
         root.addView(monthRow);
 
-        root.addView(sectionTitle("Spending budgets"));
         List<FinancePlanStore.Budget> budgets = FinancePlanStore.listBudgets(this, selectedMonth);
+        List<FinancePlanStore.Commitment> commitments = FinancePlanStore.listCommitments(this, selectedMonth);
+
+        root.addView(sectionTitle("Plan helper"));
+        root.addView(planHelper(budgets, commitments));
+
+        root.addView(sectionTitle("Spending budgets"));
         if (budgets.isEmpty()) root.addView(empty("No spending envelopes yet. Add Pocket Money or another monthly budget."));
         for (FinancePlanStore.Budget budget : budgets) root.addView(budgetCard(budget));
         root.addView(primaryButton("+ Add spending budget", v -> showBudgetDialog(null)));
 
         root.addView(sectionTitle("Planned payments"));
-        List<FinancePlanStore.Commitment> commitments = FinancePlanStore.listCommitments(this, selectedMonth);
         if (commitments.isEmpty()) root.addView(empty("No planned payments yet. Add rent, Telekom, subscriptions, or another expected bill."));
         for (FinancePlanStore.Commitment commitment : commitments) root.addView(commitmentCard(commitment));
         root.addView(primaryButton("+ Add planned payment", v -> showCommitmentDialog(null)));
@@ -111,7 +126,11 @@ public class BudgetPlanActivity extends Activity {
         card.addView(label(budget.name, 18, true));
         long spent = FinancePlanStore.spentCents(this, budget.id);
         long remaining = budget.amountCents - spent;
-        TextView amount = label(MoneyUtils.formatCents(remaining, budget.currencyCode) + " remaining", 20, true);
+        String amountLabel = remaining >= 0L
+                ? MoneyUtils.formatCents(remaining, budget.currencyCode) + " remaining"
+                : MoneyUtils.formatCents(Math.abs(remaining), budget.currencyCode) + " over budget";
+        TextView amount = label(amountLabel, 20, true);
+        if (remaining < 0L) amount.setTextColor(color(R.color.danger));
         amount.setPadding(0, dp(6), 0, dp(4));
         card.addView(amount);
         TextView detail = empty(MoneyUtils.formatCents(spent, budget.currencyCode) + " of " + MoneyUtils.formatCents(budget.amountCents, budget.currencyCode) + " spent" + dailyAllowance(budget, remaining));
@@ -133,6 +152,80 @@ public class BudgetPlanActivity extends Activity {
         return card;
     }
 
+    private View planHelper(List<FinancePlanStore.Budget> budgets, List<FinancePlanStore.Commitment> commitments) {
+        LinearLayout helper = card();
+        helper.addView(label("This month at a glance", 18, true));
+
+        ArrayList<String> over = new ArrayList<>();
+        ArrayList<String> available = new ArrayList<>();
+        ArrayList<String> under = new ArrayList<>();
+        ArrayList<String> unpaid = new ArrayList<>();
+
+        for (FinancePlanStore.Budget budget : budgets) {
+            long remaining = budget.amountCents - FinancePlanStore.spentCents(this, budget.id);
+            if (remaining < 0L) {
+                over.add(budget.name + " — " + MoneyUtils.formatCents(Math.abs(remaining), budget.currencyCode) + " over budget");
+            } else if (remaining > 0L) {
+                available.add(budget.name + " — " + MoneyUtils.formatCents(remaining, budget.currencyCode));
+            }
+        }
+
+        for (FinancePlanStore.Commitment commitment : commitments) {
+            MoneyEntry actual = actualEntry(commitment);
+            if (actual == null) {
+                if (!commitment.isPaid()) {
+                    unpaid.add(commitment.name + " — planned " + MoneyUtils.formatCents(commitment.plannedAmountCents, commitment.currencyCode));
+                }
+                continue;
+            }
+            long variance = actual.amountCents - commitment.plannedAmountCents;
+            if (variance > 0L) {
+                over.add(commitment.name + " — " + MoneyUtils.formatCents(variance, commitment.currencyCode) + " above planned");
+            } else if (variance < 0L) {
+                under.add(commitment.name + " — " + MoneyUtils.formatCents(Math.abs(variance), commitment.currencyCode) + " below planned");
+            }
+        }
+
+        int monthPosition = selectedMonth.compareTo(FinancePlanStore.currentMonth());
+        String availableTitle = monthPosition < 0 ? "Unused at month end" : monthPosition > 0 ? "Planned capacity" : "Still available";
+        String summary = over.size() + " over plan · " + available.size() + " " + availableTitle.toLowerCase()
+                + " · " + unpaid.size() + " unpaid";
+        TextView summaryView = empty(summary);
+        summaryView.setPadding(0, dp(6), 0, dp(6));
+        helper.addView(summaryView);
+
+        addHelperGroup(helper, "Over plan", over, R.color.danger);
+        addHelperGroup(helper, availableTitle, available, R.color.text_secondary);
+        addHelperGroup(helper, "Paid below plan", under, R.color.brand_accent);
+        addHelperGroup(helper, "Still unpaid", unpaid, R.color.text_secondary);
+
+        if (over.isEmpty() && available.isEmpty() && under.isEmpty() && unpaid.isEmpty()) {
+            helper.addView(empty("Everything currently matches the plan exactly."));
+        }
+        return helper;
+    }
+
+    private void addHelperGroup(LinearLayout parent, String title, List<String> lines, int colorId) {
+        if (lines.isEmpty()) return;
+        TextView heading = label(title, 14, true);
+        heading.setTextColor(color(colorId));
+        heading.setPadding(0, dp(7), 0, dp(2));
+        parent.addView(heading);
+        StringBuilder text = new StringBuilder();
+        for (String line : lines) {
+            if (text.length() > 0) text.append("\n");
+            text.append("• ").append(line);
+        }
+        TextView body = empty(text.toString());
+        body.setPadding(0, 0, 0, dp(3));
+        parent.addView(body);
+    }
+
+    private MoneyEntry actualEntry(FinancePlanStore.Commitment commitment) {
+        if (db == null || commitment == null || commitment.linkedEntryId == null || commitment.linkedEntryId.isEmpty()) return null;
+        return db.getEntryBySyncId(commitment.linkedEntryId);
+    }
+
     private String dailyAllowance(FinancePlanStore.Budget budget, long remaining) {
         if (!selectedMonth.equals(FinancePlanStore.currentMonth()) || remaining <= 0L) return "";
         Calendar calendar = Calendar.getInstance();
@@ -143,22 +236,45 @@ public class BudgetPlanActivity extends Activity {
 
     private View commitmentCard(FinancePlanStore.Commitment commitment) {
         LinearLayout card = card();
-        card.addView(label((commitment.isPaid() ? "✓ " : "○ ") + commitment.name, 18, true));
-        TextView amount = label(MoneyUtils.formatCents(commitment.plannedAmountCents, commitment.currencyCode), 18, true);
-        amount.setPadding(0, dp(5), 0, 0);
-        card.addView(amount);
+        MoneyEntry actual = actualEntry(commitment);
+        boolean paid = actual != null || commitment.isPaid();
+        card.addView(label((paid ? "✓ " : "○ ") + commitment.name, 18, true));
+
+        TextView planned = label("Planned " + MoneyUtils.formatCents(commitment.plannedAmountCents, commitment.currencyCode), 17, true);
+        planned.setPadding(0, dp(5), 0, 0);
+        card.addView(planned);
+
+        if (actual != null) {
+            card.addView(label("Actual " + MoneyUtils.formatCents(actual.amountCents, actual.currencyCode), 17, true));
+            long variance = actual.amountCents - commitment.plannedAmountCents;
+            TextView varianceView;
+            if (variance > 0L) {
+                varianceView = empty(MoneyUtils.formatCents(variance, commitment.currencyCode) + " over plan");
+                varianceView.setTextColor(color(R.color.danger));
+            } else if (variance < 0L) {
+                varianceView = empty(MoneyUtils.formatCents(Math.abs(variance), commitment.currencyCode) + " below plan");
+                varianceView.setTextColor(color(R.color.brand_accent));
+            } else {
+                varianceView = empty("Exactly as planned");
+            }
+            card.addView(varianceView);
+        } else if (commitment.isPaid()) {
+            card.addView(empty("Payment link is syncing; actual amount will appear here."));
+        }
+
         String details = commitment.category;
         if (!commitment.dueDate.isEmpty()) details += " · due " + commitment.dueDate;
         if (commitment.repeatMonthly) details += " · repeats monthly";
-        details += commitment.isPaid() ? " · paid" : " · unpaid";
+        details += paid ? " · paid" : " · unpaid";
         card.addView(empty(details));
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(0, dp(8), 0, 0);
-        if (!commitment.isPaid()) {
+        if (!paid) {
             row.addView(smallButton("Record payment", v -> recordPayment(commitment)), weighted(true));
         }
-        row.addView(smallButton("Edit", v -> showCommitmentDialog(commitment)), weighted(!commitment.isPaid()));
+        row.addView(smallButton("Edit", v -> showCommitmentDialog(commitment)), weighted(!paid));
         card.addView(row);
         return card;
     }
