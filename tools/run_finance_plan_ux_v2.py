@@ -9,7 +9,7 @@ end = source.find(end_marker, start)
 if start < 0 or end < 0:
     raise SystemExit("Could not locate financePlanSummary patch block in staging script")
 
-replacement = r'''finance_path = "gateway/src/finance.ts"
+replacement = r"""finance_path = "gateway/src/finance.ts"
 finance_text = read(finance_path)
 signature = "export function financePlanSummary(ledger: FinanceLedger, rawMonth: unknown): FinancePlanSummary {"
 fn_start = finance_text.find(signature)
@@ -98,7 +98,7 @@ new_finance_plan_function = '''export function financePlanSummary(ledger: Financ
 }'''
 write(finance_path, finance_text[:fn_start] + new_finance_plan_function + finance_text[fn_end:])
 
-'''
+"""
 
 fixed_source = source[:start] + replacement + source[end:]
 exec(compile(fixed_source, str(script_path), "exec"), {"__file__": str(script_path), "__name__": "__main__"})
