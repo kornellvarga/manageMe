@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="220dp"
-    android:minHeight="96dp"
+    android:minWidth="170dp"
+    android:minHeight="38dp"
     android:updatePeriodMillis="1800000"
-    android:initialLayout="@layout/widget_budget_progress"
-    android:previewLayout="@layout/widget_budget_progress"
-    android:resizeMode="horizontal|vertical"
+    android:initialLayout="@layout/widget_budget_minimal"
+    android:previewLayout="@layout/widget_budget_minimal"
+    android:resizeMode="horizontal"
     android:widgetCategory="home_screen|keyguard"
     android:configure="com.example.expensebuttontracker.ui.BudgetWidgetConfigureActivity" />
