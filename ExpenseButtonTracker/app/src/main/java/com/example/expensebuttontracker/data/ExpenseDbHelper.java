@@ -282,6 +282,21 @@ public class ExpenseDbHelper extends SQLiteOpenHelper {
         }
     }
 
+    public MoneyEntry getEntryBySyncId(String syncId) {
+        if (syncId == null || syncId.trim().isEmpty()) return null;
+        try (Cursor cursor = getReadableDatabase().query(
+                TABLE_ENTRIES,
+                new String[]{"id", "type", "category", "amount_cents", "currency_code", "name", "created_at"},
+                "sync_id = ? AND " + ACTIVE,
+                new String[]{syncId.trim()},
+                null,
+                null,
+                null,
+                "1")) {
+            return cursor.moveToFirst() ? readEntry(cursor) : null;
+        }
+    }
+
     private long getNextEntryIndex(SQLiteDatabase db, String type, String category) {
         try (Cursor cursor = db.rawQuery(
                 "SELECT COUNT(*) + 1 FROM " + TABLE_ENTRIES + " WHERE type = ? AND category = ? AND " + ACTIVE,

@@ -90,7 +90,7 @@ export function financeToolsFor(): FinanceToolDefinition[] {
     tool("finance_list_categories", "List money categories", "List the active expense and income categories synchronized with the Android money tracker.", {
       type: { type: "string", enum: ["EXPENSE", "INCOME"] },
     }, [], true, true),
-    tool("finance_get_plan", "Read monthly money plan", "Read Kornel's planned bills and spending budgets for one month, including spent, remaining, and paid status. Omit month for the current month in Europe/Istanbul.", {
+    tool("finance_get_plan", "Read monthly money plan", "Read Kornel's planned bills and spending budgets for one month, including spent/remaining budget status, planned-vs-actual payment variance, overspend, unused capacity, and unpaid items. Omit month for the current month in Europe/Istanbul.", {
       month: { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$", description: "Month in YYYY-MM." },
     }, [], true, true),
     tool("finance_add_budget", "Add monthly spending budget", "Create a month-scoped spending envelope such as Pocket Money, Food, or Travel. This is separate from transaction categories.", {
@@ -307,10 +307,13 @@ export async function callFinanceTool(name: string, args: Record<string, unknown
     const ledger = (await readFinanceLedger(env)).ledger;
     const month = requestedMonth(args);
     const plan = financePlanSummary(ledger, month);
-    const remaining = plan.budgets.map((budget) => `${budget.name}: ${formatAmount(budget.remainingCents, budget.currencyCode)} remaining`).join("; ");
-    const unpaid = plan.commitments.filter((item) => !item.paid).length;
+    const remaining = plan.budgets.map((budget) => budget.status === "overspent"
+      ? `${budget.name}: ${formatAmount(Math.abs(budget.remainingCents), budget.currencyCode)} over budget`
+      : `${budget.name}: ${formatAmount(budget.remainingCents, budget.currencyCode)} remaining`).join("; ");
+    const unpaid = plan.insights.unpaid.length;
+    const over = plan.insights.overspent.length;
     const message = plan.budgets.length || plan.commitments.length
-      ? `Plan for ${month}: ${remaining || "no spending envelopes"}; ${unpaid} unpaid planned payment${unpaid === 1 ? "" : "s"}.`
+      ? `Plan for ${month}: ${remaining || "no spending envelopes"}; ${over} item${over === 1 ? "" : "s"} over plan; ${unpaid} unpaid planned payment${unpaid === 1 ? "" : "s"}.`
       : `No budgets or planned payments are set for ${month}.`;
     return resultText(message, { ...plan, revision: ledger.revision });
   }
