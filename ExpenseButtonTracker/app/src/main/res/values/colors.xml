@@ -11,4 +11,10 @@
     <color name="text_primary">#1B1F24</color>
     <color name="text_secondary">#5F6B7A</color>
     <color name="danger">#B3261E</color>
+    <color name="widget_progress_track">#DCE5F2</color>
+    <color name="widget_dark_text">#FFFFFF</color>
+    <color name="widget_dark_muted">#C9D9F2</color>
+    <color name="widget_dark_progress">#63E6BE</color>
+    <color name="widget_dark_track">#4DFFFFFF</color>
+    <color name="widget_dark_danger">#FFFFB4AB</color>
 </resources>

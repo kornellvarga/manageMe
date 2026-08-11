@@ -76,9 +76,45 @@
         </activity>
 
         <receiver
+            android:name=".widget.BudgetMinimalWidget"
+            android:exported="true"
+            android:label="Budget Minimal · one line">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_budget_minimal" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.BudgetCompactWidget"
+            android:exported="true"
+            android:label="Budget Compact">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_budget_compact" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.BudgetDetailedWidget"
+            android:exported="true"
+            android:label="Budget Detailed">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_budget_detailed" />
+        </receiver>
+
+        <receiver
             android:name=".widget.BudgetProgressWidget"
             android:exported="true"
-            android:label="Budget gauge">
+            android:label="Budget Card">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

@@ -28,6 +28,9 @@ import com.example.expensebuttontracker.data.FinancePlanStore;
 import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.MoneyUtils;
+import com.example.expensebuttontracker.widget.BudgetCompactWidget;
+import com.example.expensebuttontracker.widget.BudgetDetailedWidget;
+import com.example.expensebuttontracker.widget.BudgetMinimalWidget;
 import com.example.expensebuttontracker.widget.BudgetProgressWidget;
 
 import org.json.JSONException;
@@ -94,9 +97,12 @@ public class BudgetPlanActivity extends Activity {
         for (FinancePlanStore.Commitment commitment : commitments) root.addView(commitmentCard(commitment));
         root.addView(primaryButton("+ Add planned payment", v -> showCommitmentDialog(null)));
 
-        root.addView(sectionTitle("Widget"));
-        root.addView(secondaryButton("Pin budget gauge", v -> requestPinBudgetWidget()));
-        TextView widgetHelp = empty("The widget automatically shows Pocket Money when present; its setup screen can choose a different budget. It is also available on compatible lock-screen widget surfaces.");
+        root.addView(sectionTitle("Budget widgets"));
+        root.addView(secondaryButton("Pin Minimal · one line", v -> requestPinBudgetWidget(BudgetMinimalWidget.class)));
+        root.addView(secondaryButton("Pin Compact", v -> requestPinBudgetWidget(BudgetCompactWidget.class)));
+        root.addView(secondaryButton("Pin Card", v -> requestPinBudgetWidget(BudgetProgressWidget.class)));
+        root.addView(secondaryButton("Pin Detailed", v -> requestPinBudgetWidget(BudgetDetailedWidget.class)));
+        TextView widgetHelp = empty("Four layouts share the same live budget data. Minimal is a true one-line widget; Compact adds a slim progress bar; Card balances glanceability and detail; Detailed is a dashboard-style view. Each can choose its own budget and is available on compatible lock-screen widget surfaces.");
         root.addView(widgetHelp);
     }
 
@@ -230,11 +236,11 @@ public class BudgetPlanActivity extends Activity {
         try { mutation.run(); afterPlanMutation(); } catch (Exception error) { toast(error.getMessage()); }
     }
 
-    private void requestPinBudgetWidget() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) { toast("Add Budget gauge from your launcher widget picker."); return; }
+    private void requestPinBudgetWidget(Class<?> providerClass) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) { toast("Add the budget widget from your launcher widget picker."); return; }
         AppWidgetManager manager = getSystemService(AppWidgetManager.class);
-        if (manager == null || !manager.isRequestPinAppWidgetSupported()) { toast("Add Budget gauge from your launcher widget picker."); return; }
-        manager.requestPinAppWidget(new ComponentName(this, BudgetProgressWidget.class), null, null);
+        if (manager == null || !manager.isRequestPinAppWidgetSupported()) { toast("Add the budget widget from your launcher widget picker."); return; }
+        manager.requestPinAppWidget(new ComponentName(this, providerClass), null, null);
     }
 
     private LinearLayout card() {
