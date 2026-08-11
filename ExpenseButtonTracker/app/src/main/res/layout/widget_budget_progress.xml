@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_budget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="14dp"
+    android:background="@drawable/rounded_widget_background">
+    <TextView android:id="@+id/widget_budget_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Pocket Money" android:textStyle="bold" android:textSize="13sp" android:textColor="@color/text_primary" android:maxLines="1" />
+    <TextView android:id="@+id/widget_budget_amount" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="0 left" android:textStyle="bold" android:textSize="21sp" android:textColor="@color/text_primary" android:paddingTop="2dp" android:maxLines="1" />
+    <ProgressBar android:id="@+id/widget_budget_progress" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="10dp" android:layout_marginTop="7dp" android:max="1000" android:progress="0" />
+    <TextView android:id="@+id/widget_budget_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="0 / 0" android:textSize="11sp" android:textColor="@color/text_secondary" android:paddingTop="4dp" android:maxLines="1" />
+</LinearLayout>

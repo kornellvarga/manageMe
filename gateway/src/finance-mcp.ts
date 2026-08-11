@@ -1,7 +1,9 @@
 import {
   financeEntriesByStatus,
+  financePlanSummary,
   financeSummary,
   normalizeFinanceCurrency,
+  normalizeFinanceMonth,
   normalizeFinanceStatus,
   normalizeFinanceType,
 } from "./finance";
@@ -30,6 +32,16 @@ const FINANCE_TOOL_NAMES = new Set([
   "finance_delete_entry",
   "finance_add_category",
   "finance_delete_category",
+  "finance_get_plan",
+  "finance_add_budget",
+  "finance_update_budget",
+  "finance_delete_budget",
+  "finance_add_commitment",
+  "finance_update_commitment",
+  "finance_delete_commitment",
+  "finance_allocate_entry",
+  "finance_unallocate_entry",
+  "finance_link_commitment",
 ]);
 
 function tool(
@@ -78,6 +90,62 @@ export function financeToolsFor(): FinanceToolDefinition[] {
     tool("finance_list_categories", "List money categories", "List the active expense and income categories synchronized with the Android money tracker.", {
       type: { type: "string", enum: ["EXPENSE", "INCOME"] },
     }, [], true, true),
+    tool("finance_get_plan", "Read monthly money plan", "Read Kornel's planned bills and spending budgets for one month, including spent, remaining, and paid status. Omit month for the current month in Europe/Istanbul.", {
+      month: { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$", description: "Month in YYYY-MM." },
+    }, [], true, true),
+    tool("finance_add_budget", "Add monthly spending budget", "Create a month-scoped spending envelope such as Pocket Money, Food, or Travel. This is separate from transaction categories.", {
+      name: { type: "string", minLength: 1, maxLength: 120 },
+      month: { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$" },
+      amount: { type: "number", exclusiveMinimum: 0 },
+      currency: { type: "string", enum: ["HUF", "EUR", "TRY", "TL"] },
+      request_id: { type: "string" },
+    }, ["name", "month", "amount", "currency"], false, true),
+    tool("finance_update_budget", "Update monthly spending budget", "Change a spending envelope's name, month, limit, or currency without changing transaction categories.", {
+      budget_id: { type: "string" },
+      name: { type: "string", minLength: 1, maxLength: 120 },
+      month: { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$" },
+      amount: { type: "number", exclusiveMinimum: 0 },
+      currency: { type: "string", enum: ["HUF", "EUR", "TRY", "TL"] },
+      request_id: { type: "string" },
+    }, ["budget_id"], false, true),
+    tool("finance_delete_budget", "Delete monthly spending budget", "Remove a spending envelope from the plan. Existing money entries remain untouched.", {
+      budget_id: { type: "string" }, request_id: { type: "string" },
+    }, ["budget_id"], false, true, true),
+    tool("finance_add_commitment", "Add planned payment", "Create a planned bill or other expected payment for a month. It stays unpaid until linked to an actual expense.", {
+      name: { type: "string", minLength: 1, maxLength: 180 },
+      month: { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$" },
+      amount: { type: "number", exclusiveMinimum: 0 },
+      currency: { type: "string", enum: ["HUF", "EUR", "TRY", "TL"] },
+      category: { type: "string", minLength: 1, maxLength: 120, default: "Bills" },
+      due_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+      repeat_monthly: { type: "boolean", default: false },
+      request_id: { type: "string" },
+    }, ["name", "month", "amount", "currency"], false, true),
+    tool("finance_update_commitment", "Update planned payment", "Change an expected payment without creating an expense or marking it paid.", {
+      commitment_id: { type: "string" },
+      name: { type: "string", minLength: 1, maxLength: 180 },
+      month: { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$" },
+      amount: { type: "number", exclusiveMinimum: 0 },
+      currency: { type: "string", enum: ["HUF", "EUR", "TRY", "TL"] },
+      category: { type: "string", minLength: 1, maxLength: 120 },
+      due_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+      repeat_monthly: { type: "boolean" },
+      request_id: { type: "string" },
+    }, ["commitment_id"], false, true),
+    tool("finance_delete_commitment", "Delete planned payment", "Remove a planned payment without deleting any linked money entry.", {
+      commitment_id: { type: "string" }, request_id: { type: "string" },
+    }, ["commitment_id"], false, true, true),
+    tool("finance_allocate_entry", "Allocate expense to budget", "Assign all or part of an existing expense to a monthly spending budget. Transaction category remains unchanged.", {
+      entry_id: { type: "string" }, budget_id: { type: "string" },
+      amount: { type: "number", exclusiveMinimum: 0, description: "Optional partial amount; omit to allocate the full expense." },
+      request_id: { type: "string" },
+    }, ["entry_id", "budget_id"], false, true),
+    tool("finance_unallocate_entry", "Remove budget allocation", "Remove one allocation between an expense and a spending budget.", {
+      allocation_id: { type: "string" }, request_id: { type: "string" },
+    }, ["allocation_id"], false, true, true),
+    tool("finance_link_commitment", "Link payment to planned bill", "Mark a planned payment satisfied by linking it to an actual expense, or clear the link by omitting entry_id.", {
+      commitment_id: { type: "string" }, entry_id: { type: "string" }, request_id: { type: "string" },
+    }, ["commitment_id"], false, true),
     tool("finance_add_entry", "Add a money entry", "Add one expense or income entry to the synchronized ledger. Preserve the original currency and use the exact amount Kornel gives.", {
       type: { type: "string", enum: ["EXPENSE", "INCOME"] },
       category: { type: "string", minLength: 1, maxLength: 120 },
@@ -200,6 +268,18 @@ function entryStatus(args: Record<string, unknown>): FinanceEntryStatus {
   return normalizeFinanceStatus(args.status);
 }
 
+
+function currentFinanceMonth(): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  return normalizeFinanceMonth(`${year}-${month}`);
+}
+
+function requestedMonth(args: Record<string, unknown>): string {
+  return args.month ? normalizeFinanceMonth(args.month) : currentFinanceMonth();
+}
+
 export async function callFinanceTool(name: string, args: Record<string, unknown>, env: Env, auth: AuthContext): Promise<Record<string, unknown>> {
   if (name === "finance_list_entries") {
     const ledger = (await readFinanceLedger(env)).ledger;
@@ -223,7 +303,89 @@ export async function callFinanceTool(name: string, args: Record<string, unknown
     return resultText(`Found ${categories.length} active categor${categories.length === 1 ? "y" : "ies"}.`, { categories, revision: ledger.revision });
   }
 
+  if (name === "finance_get_plan") {
+    const ledger = (await readFinanceLedger(env)).ledger;
+    const month = requestedMonth(args);
+    const plan = financePlanSummary(ledger, month);
+    const remaining = plan.budgets.map((budget) => `${budget.name}: ${formatAmount(budget.remainingCents, budget.currencyCode)} remaining`).join("; ");
+    const unpaid = plan.commitments.filter((item) => !item.paid).length;
+    const message = plan.budgets.length || plan.commitments.length
+      ? `Plan for ${month}: ${remaining || "no spending envelopes"}; ${unpaid} unpaid planned payment${unpaid === 1 ? "" : "s"}.`
+      : `No budgets or planned payments are set for ${month}.`;
+    return resultText(message, { ...plan, revision: ledger.revision });
+  }
+
   if (!auth.scopes.includes("manage:write")) return writeScopeChallenge(env);
+
+  if (name === "finance_add_budget") {
+    const result = await applyFinanceCommandToGitHub(env, command("add_budget", args, {
+      name: args.name, month: args.month, amountCents: amountCents(args.amount), currencyCode: args.currency,
+    }));
+    const budget = (result.ledger.budgets || []).find((item) => item.id === result.entityId);
+    return resultText(`Added ${budget?.name || String(args.name)} budget for ${budget?.month || String(args.month)}.`, { budget, revision: result.ledger.revision });
+  }
+  if (name === "finance_update_budget") {
+    const payload: Record<string, unknown> = { id: args.budget_id };
+    if ("name" in args) payload.name = args.name;
+    if ("month" in args) payload.month = args.month;
+    if ("amount" in args) payload.amountCents = amountCents(args.amount);
+    if ("currency" in args) payload.currencyCode = args.currency;
+    const result = await applyFinanceCommandToGitHub(env, command("update_budget", args, payload));
+    const budget = (result.ledger.budgets || []).find((item) => item.id === result.entityId);
+    return resultText(`Updated budget ${budget?.name || String(args.budget_id)}.`, { budget, revision: result.ledger.revision });
+  }
+  if (name === "finance_delete_budget") {
+    const result = await applyFinanceCommandToGitHub(env, command("delete_budget", args, { id: args.budget_id }));
+    return resultText(`Deleted budget ${String(args.budget_id)}. Money entries were not deleted.`, { budgetId: args.budget_id, revision: result.ledger.revision });
+  }
+  if (name === "finance_add_commitment") {
+    const result = await applyFinanceCommandToGitHub(env, command("add_commitment", args, {
+      name: args.name,
+      month: args.month,
+      plannedAmountCents: amountCents(args.amount),
+      currencyCode: args.currency,
+      category: args.category || "Bills",
+      dueDate: args.due_date,
+      repeatMonthly: Boolean(args.repeat_monthly),
+    }));
+    const commitment = (result.ledger.commitments || []).find((item) => item.id === result.entityId);
+    return resultText(`Added planned payment ${commitment?.name || String(args.name)}. It is not marked paid until linked to an expense.`, { commitment, revision: result.ledger.revision });
+  }
+  if (name === "finance_update_commitment") {
+    const payload: Record<string, unknown> = { id: args.commitment_id };
+    if ("name" in args) payload.name = args.name;
+    if ("month" in args) payload.month = args.month;
+    if ("amount" in args) payload.plannedAmountCents = amountCents(args.amount);
+    if ("currency" in args) payload.currencyCode = args.currency;
+    if ("category" in args) payload.category = args.category;
+    if ("due_date" in args) payload.dueDate = args.due_date;
+    if ("repeat_monthly" in args) payload.repeatMonthly = Boolean(args.repeat_monthly);
+    const result = await applyFinanceCommandToGitHub(env, command("update_commitment", args, payload));
+    const commitment = (result.ledger.commitments || []).find((item) => item.id === result.entityId);
+    return resultText(`Updated planned payment ${commitment?.name || String(args.commitment_id)}.`, { commitment, revision: result.ledger.revision });
+  }
+  if (name === "finance_delete_commitment") {
+    const result = await applyFinanceCommandToGitHub(env, command("delete_commitment", args, { id: args.commitment_id }));
+    return resultText(`Deleted planned payment ${String(args.commitment_id)}. Linked expenses were kept.`, { commitmentId: args.commitment_id, revision: result.ledger.revision });
+  }
+  if (name === "finance_allocate_entry") {
+    const payload: Record<string, unknown> = { entryId: args.entry_id, budgetId: args.budget_id };
+    if ("amount" in args) payload.amountCents = amountCents(args.amount);
+    const result = await applyFinanceCommandToGitHub(env, command("set_allocation", args, payload));
+    const allocation = (result.ledger.allocations || []).find((item) => item.id === result.entityId);
+    return resultText(`Allocated expense ${String(args.entry_id)} to budget ${String(args.budget_id)}.`, { allocation, revision: result.ledger.revision });
+  }
+  if (name === "finance_unallocate_entry") {
+    const result = await applyFinanceCommandToGitHub(env, command("delete_allocation", args, { id: args.allocation_id }));
+    return resultText(`Removed budget allocation ${String(args.allocation_id)}.`, { allocationId: args.allocation_id, revision: result.ledger.revision });
+  }
+  if (name === "finance_link_commitment") {
+    const result = await applyFinanceCommandToGitHub(env, command("link_commitment", args, { id: args.commitment_id, entryId: args.entry_id }));
+    const commitment = (result.ledger.commitments || []).find((item) => item.id === result.entityId);
+    return resultText(commitment?.linkedEntryId
+      ? `Linked ${commitment.name} to its actual payment.`
+      : `Cleared the payment link for ${commitment?.name || String(args.commitment_id)}.`, { commitment, revision: result.ledger.revision });
+  }
 
   if (name === "finance_add_entry") {
     const result = await applyFinanceCommandToGitHub(env, command("add_entry", args, {

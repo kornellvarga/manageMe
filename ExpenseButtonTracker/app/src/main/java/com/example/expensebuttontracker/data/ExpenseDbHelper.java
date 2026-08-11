@@ -276,6 +276,12 @@ public class ExpenseDbHelper extends SQLiteOpenHelper {
         return db.insertOrThrow(TABLE_ENTRIES, null, values);
     }
 
+    public String getEntrySyncId(long localId) {
+        try (Cursor cursor = getReadableDatabase().query(TABLE_ENTRIES, new String[]{"sync_id"}, "id = ?", new String[]{String.valueOf(localId)}, null, null, null, "1")) {
+            return cursor.moveToFirst() ? cursor.getString(0) : "";
+        }
+    }
+
     private long getNextEntryIndex(SQLiteDatabase db, String type, String category) {
         try (Cursor cursor = db.rawQuery(
                 "SELECT COUNT(*) + 1 FROM " + TABLE_ENTRIES + " WHERE type = ? AND category = ? AND " + ACTIVE,

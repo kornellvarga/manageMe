@@ -13,11 +13,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Space;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -25,22 +27,36 @@ import com.example.expensebuttontracker.R;
 import com.example.expensebuttontracker.data.Category;
 import com.example.expensebuttontracker.data.EntryType;
 import com.example.expensebuttontracker.data.ExpenseDbHelper;
+import com.example.expensebuttontracker.data.FinancePlanStore;
 import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.MoneyUtils;
 import com.example.expensebuttontracker.util.SettingsStore;
+import com.example.expensebuttontracker.widget.BudgetProgressWidget;
 
 import java.util.List;
 import java.util.Locale;
 
 public class QuickAddActivity extends Activity {
     public static final String EXTRA_ENTRY_TYPE = "com.example.expensebuttontracker.EXTRA_ENTRY_TYPE";
+    public static final String EXTRA_BUDGET_ID = "com.example.expensebuttontracker.EXTRA_BUDGET_ID";
+    public static final String EXTRA_COMMITMENT_ID = "com.example.expensebuttontracker.EXTRA_COMMITMENT_ID";
+    public static final String EXTRA_PRESET_CATEGORY = "com.example.expensebuttontracker.EXTRA_PRESET_CATEGORY";
+    public static final String EXTRA_PRESET_AMOUNT_CENTS = "com.example.expensebuttontracker.EXTRA_PRESET_AMOUNT_CENTS";
+    public static final String EXTRA_PRESET_CURRENCY = "com.example.expensebuttontracker.EXTRA_PRESET_CURRENCY";
+    public static final String EXTRA_PRESET_NAME = "com.example.expensebuttontracker.EXTRA_PRESET_NAME";
 
     private ExpenseDbHelper db;
     private LinearLayout root;
     private String selectedType = EntryType.EXPENSE;
     private String selectedCategory;
     private String selectedCurrency;
+    private String selectedBudgetId;
+    private String commitmentId;
+    private long presetAmountCents;
+    private String presetName = "";
+    private Spinner budgetSpinner;
+    private List<FinancePlanStore.Budget> budgetChoices;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,14 +64,29 @@ public class QuickAddActivity extends Activity {
         configureLockScreenBehavior();
         db = new ExpenseDbHelper(this);
         selectedCurrency = SettingsStore.getEntryCurrency(this);
+        Intent source = getIntent();
+        selectedBudgetId = source.getStringExtra(EXTRA_BUDGET_ID);
+        commitmentId = source.getStringExtra(EXTRA_COMMITMENT_ID);
+        presetAmountCents = source.getLongExtra(EXTRA_PRESET_AMOUNT_CENTS, 0L);
+        presetName = source.getStringExtra(EXTRA_PRESET_NAME);
+        if (presetName == null) presetName = "";
+        String presetCurrency = source.getStringExtra(EXTRA_PRESET_CURRENCY);
+        if (presetCurrency != null && CurrencyUtils.isSupported(CurrencyUtils.normalize(presetCurrency))) selectedCurrency = CurrencyUtils.normalize(presetCurrency);
 
-        String requestedType = getIntent().getStringExtra(EXTRA_ENTRY_TYPE);
+        String requestedType = source.getStringExtra(EXTRA_ENTRY_TYPE);
         if (EntryType.isValid(requestedType)) {
             selectedType = requestedType;
         }
 
         buildShell();
-        showCategorySelector();
+        String presetCategory = source.getStringExtra(EXTRA_PRESET_CATEGORY);
+        if (presetCategory != null && !presetCategory.trim().isEmpty()) {
+            selectedType = EntryType.EXPENSE;
+            selectedCategory = presetCategory.trim();
+            showAmountForm();
+        } else {
+            showCategorySelector();
+        }
     }
 
     protected boolean shouldShowOverLockScreen() {
@@ -187,6 +218,7 @@ public class QuickAddActivity extends Activity {
         amountInput.setSingleLine(true);
         amountInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         amountInput.setPadding(dp(12), dp(14), dp(12), dp(14));
+        if (presetAmountCents > 0L) amountInput.setText(MoneyUtils.formatPlainDecimal(presetAmountCents));
         root.addView(amountInput, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -210,9 +242,21 @@ public class QuickAddActivity extends Activity {
         nameInput.setSingleLine(true);
         nameInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         nameInput.setPadding(dp(12), dp(14), dp(12), dp(14));
+        if (!presetName.isEmpty()) nameInput.setText(presetName);
         root.addView(nameInput, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        if (EntryType.EXPENSE.equals(selectedType)) {
+            root.addView(spacer(10));
+            root.addView(label("Budget (optional)", 16, true));
+            budgetSpinner = new Spinner(this);
+            root.addView(budgetSpinner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            rebuildBudgetSpinner();
+        } else {
+            budgetSpinner = null;
+            budgetChoices = null;
+        }
 
         root.addView(spacer(16));
         root.addView(primaryButton("Save", v -> saveEntry(amountInput, nameInput)));
@@ -244,13 +288,24 @@ public class QuickAddActivity extends Activity {
 
         try {
             long id = db.addEntry(selectedType, selectedCategory, cents, selectedCurrency, nameInput.getText().toString());
+            String syncId = db.getEntrySyncId(id);
+            String budgetName = "";
+            if (budgetSpinner != null && budgetChoices != null && budgetSpinner.getSelectedItemPosition() > 0) {
+                FinancePlanStore.Budget budget = budgetChoices.get(budgetSpinner.getSelectedItemPosition() - 1);
+                FinancePlanStore.allocateEntry(this, syncId, budget.id, cents, selectedCurrency);
+                selectedBudgetId = budget.id;
+                budgetName = budget.name;
+            }
+            if (commitmentId != null && !commitmentId.isEmpty()) FinancePlanStore.linkCommitment(this, commitmentId, syncId, selectedCurrency);
             SettingsStore.setEntryCurrency(this, selectedCurrency);
-            Toast.makeText(this, "Saved " + MoneyUtils.formatCents(cents, selectedCurrency) + " as " + selectedCategory, Toast.LENGTH_SHORT).show();
+            BudgetProgressWidget.updateAll(this);
+            String budgetSuffix = budgetName.isEmpty() ? "" : " · " + budgetName;
+            Toast.makeText(this, "Saved " + MoneyUtils.formatCents(cents, selectedCurrency) + " as " + selectedCategory + budgetSuffix, Toast.LENGTH_SHORT).show();
             setResult(RESULT_OK, new Intent().putExtra("entry_id", id));
             FinanceSyncClient.syncAsync(this);
             finish();
-        } catch (IllegalArgumentException ex) {
-            Toast.makeText(this, ex.getMessage(), Toast.LENGTH_LONG).show();
+        } catch (Exception ex) {
+            Toast.makeText(this, ex.getMessage() == null ? "Could not save the finance plan link." : ex.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -267,8 +322,27 @@ public class QuickAddActivity extends Activity {
             selectedCurrency = currencyCode;
             SettingsStore.setEntryCurrency(this, currencyCode);
             updateCurrencyButtons(currencyRow);
+            rebuildBudgetSpinner();
         });
         return button;
+    }
+
+    private void rebuildBudgetSpinner() {
+        if (budgetSpinner == null) return;
+        budgetChoices = new java.util.ArrayList<>();
+        java.util.ArrayList<String> labels = new java.util.ArrayList<>();
+        labels.add("No budget");
+        int selectedIndex = 0;
+        for (FinancePlanStore.Budget budget : FinancePlanStore.listBudgets(this, FinancePlanStore.currentMonth())) {
+            if (!budget.currencyCode.equals(selectedCurrency)) continue;
+            budgetChoices.add(budget);
+            labels.add(budget.name + " · " + CurrencyUtils.displayCode(budget.currencyCode));
+            if (budget.id.equals(selectedBudgetId)) selectedIndex = labels.size() - 1;
+        }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, labels);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        budgetSpinner.setAdapter(adapter);
+        budgetSpinner.setSelection(selectedIndex);
     }
 
     private void updateCurrencyButtons(LinearLayout currencyRow) {

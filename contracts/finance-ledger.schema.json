@@ -9,62 +9,65 @@
     "schemaVersion": { "const": 1 },
     "revision": { "type": "integer", "minimum": 0 },
     "profileId": { "const": "kornel" },
-    "entries": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/entry" }
-    },
-    "categories": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/category" }
-    },
-    "appliedRequestIds": {
-      "type": "array",
-      "maxItems": 2000,
-      "uniqueItems": true,
-      "items": { "$ref": "#/$defs/id" }
-    },
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" } },
+    "categories": { "type": "array", "items": { "$ref": "#/$defs/category" } },
+    "budgets": { "type": "array", "items": { "$ref": "#/$defs/budget" } },
+    "commitments": { "type": "array", "items": { "$ref": "#/$defs/commitment" } },
+    "allocations": { "type": "array", "items": { "$ref": "#/$defs/allocation" } },
+    "appliedRequestIds": { "type": "array", "maxItems": 2000, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
     "updatedAt": { "type": "string", "format": "date-time" }
   },
   "$defs": {
-    "id": {
-      "type": "string",
-      "minLength": 3,
-      "maxLength": 96,
-      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{2,95}$"
-    },
-    "millis": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 8640000000000000
-    },
+    "id": { "type": "string", "minLength": 3, "maxLength": 96, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{2,95}$" },
+    "millis": { "type": "integer", "minimum": 0, "maximum": 8640000000000000 },
+    "currency": { "enum": ["HUF", "EUR", "TRY"] },
     "entry": {
-      "type": "object",
-      "additionalProperties": false,
+      "type": "object", "additionalProperties": false,
       "required": ["id", "type", "category", "amountCents", "currencyCode", "name", "createdAtMillis", "updatedAtMillis", "actor"],
       "properties": {
-        "id": { "$ref": "#/$defs/id" },
-        "type": { "enum": ["EXPENSE", "INCOME"] },
-        "category": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "amountCents": { "type": "integer", "minimum": 1 },
-        "currencyCode": { "enum": ["HUF", "EUR", "TRY"] },
-        "name": { "type": "string", "minLength": 1, "maxLength": 240 },
-        "createdAtMillis": { "$ref": "#/$defs/millis" },
-        "updatedAtMillis": { "$ref": "#/$defs/millis" },
-        "deletedAtMillis": { "$ref": "#/$defs/millis" },
+        "id": { "$ref": "#/$defs/id" }, "type": { "enum": ["EXPENSE", "INCOME"] },
+        "category": { "type": "string", "minLength": 1, "maxLength": 120 }, "amountCents": { "type": "integer", "minimum": 1 },
+        "currencyCode": { "$ref": "#/$defs/currency" }, "name": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "createdAtMillis": { "$ref": "#/$defs/millis" }, "updatedAtMillis": { "$ref": "#/$defs/millis" },
+        "archivedAtMillis": { "$ref": "#/$defs/millis" }, "deletedAtMillis": { "$ref": "#/$defs/millis" },
         "actor": { "enum": ["kornel", "assistant", "web", "android", "system"] }
       }
     },
     "category": {
-      "type": "object",
-      "additionalProperties": false,
+      "type": "object", "additionalProperties": false,
       "required": ["id", "type", "name", "sortOrder", "updatedAtMillis"],
       "properties": {
-        "id": { "$ref": "#/$defs/id" },
-        "type": { "enum": ["EXPENSE", "INCOME"] },
-        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "sortOrder": { "type": "integer", "minimum": 0, "maximum": 100000 },
-        "updatedAtMillis": { "$ref": "#/$defs/millis" },
-        "deletedAtMillis": { "$ref": "#/$defs/millis" }
+        "id": { "$ref": "#/$defs/id" }, "type": { "enum": ["EXPENSE", "INCOME"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "sortOrder": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "updatedAtMillis": { "$ref": "#/$defs/millis" }, "deletedAtMillis": { "$ref": "#/$defs/millis" }
+      }
+    },
+    "budget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "month", "amountCents", "currencyCode", "updatedAtMillis"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "month": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }, "amountCents": { "type": "integer", "minimum": 1 },
+        "currencyCode": { "$ref": "#/$defs/currency" }, "updatedAtMillis": { "$ref": "#/$defs/millis" }, "deletedAtMillis": { "$ref": "#/$defs/millis" }
+      }
+    },
+    "commitment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "month", "plannedAmountCents", "currencyCode", "category", "repeatMonthly", "updatedAtMillis"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "name": { "type": "string", "minLength": 1, "maxLength": 180 },
+        "month": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }, "plannedAmountCents": { "type": "integer", "minimum": 1 },
+        "currencyCode": { "$ref": "#/$defs/currency" }, "category": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "dueDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }, "repeatMonthly": { "type": "boolean" },
+        "linkedEntryId": { "$ref": "#/$defs/id" }, "updatedAtMillis": { "$ref": "#/$defs/millis" }, "deletedAtMillis": { "$ref": "#/$defs/millis" }
+      }
+    },
+    "allocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "entryId", "budgetId", "amountCents", "updatedAtMillis"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "entryId": { "$ref": "#/$defs/id" }, "budgetId": { "$ref": "#/$defs/id" },
+        "amountCents": { "type": "integer", "minimum": 1 }, "updatedAtMillis": { "$ref": "#/$defs/millis" }, "deletedAtMillis": { "$ref": "#/$defs/millis" }
       }
     }
   }

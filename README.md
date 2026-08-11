@@ -9,7 +9,7 @@ The default loop is deliberately small:
 3. Do one, finish it, or reschedule it intentionally.
 4. Let the assistant read the same private state and help choose the next step.
 
-The Android APK also contains the native Money tracker. Its existing quick-add, currencies, categories, widget, lock-screen surfaces, summaries, statistics, exchange rates, and CSV export remain local-first. After ManageMe is connected with GitHub in the APK, money data synchronizes to a separate private `finance.json` ledger and becomes available through validated assistant tools.
+The Android APK also contains the native Money tracker. Its quick-add, currencies, categories, widgets, lock-screen surfaces, monthly spending budgets, planned payments, summaries, statistics, exchange rates, and CSV export remain local-first. After ManageMe is connected with GitHub in the APK, money data synchronizes to a separate private `finance.json` ledger and becomes available through validated assistant tools.
 
 ## What is here
 
