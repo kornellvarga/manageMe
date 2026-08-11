@@ -31,6 +31,7 @@ import com.example.expensebuttontracker.sync.FinanceSyncClient;
 import com.example.expensebuttontracker.util.CurrencyUtils;
 import com.example.expensebuttontracker.util.MoneyUtils;
 import com.example.expensebuttontracker.widget.BudgetCompactWidget;
+import com.example.expensebuttontracker.widget.BudgetCompactAddWidget;
 import com.example.expensebuttontracker.widget.BudgetDetailedWidget;
 import com.example.expensebuttontracker.widget.BudgetMinimalWidget;
 import com.example.expensebuttontracker.widget.BudgetProgressWidget;
@@ -115,9 +116,10 @@ public class BudgetPlanActivity extends Activity {
         root.addView(sectionTitle("Budget widgets"));
         root.addView(secondaryButton("Pin Minimal · one line", v -> requestPinBudgetWidget(BudgetMinimalWidget.class)));
         root.addView(secondaryButton("Pin Compact", v -> requestPinBudgetWidget(BudgetCompactWidget.class)));
+        root.addView(secondaryButton("Pin Compact + Add", v -> requestPinBudgetWidget(BudgetCompactAddWidget.class)));
         root.addView(secondaryButton("Pin Card", v -> requestPinBudgetWidget(BudgetProgressWidget.class)));
         root.addView(secondaryButton("Pin Detailed", v -> requestPinBudgetWidget(BudgetDetailedWidget.class)));
-        TextView widgetHelp = empty("Four layouts share the same live budget data. Minimal is a true one-line widget; Compact adds a slim progress bar; Card balances glanceability and detail; Detailed is a dashboard-style view. Each can choose its own budget and is available on compatible lock-screen widget surfaces.");
+        TextView widgetHelp = empty("Five layouts share the same live budget data. Compact + Add keeps the gauge and adds a small square + button that opens Quick Add with this widget's budget preselected. Each widget can choose its own budget.");
         root.addView(widgetHelp);
     }
 
