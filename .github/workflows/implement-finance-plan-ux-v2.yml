@@ -1,0 +1,74 @@
+name: Implement finance plan UX v2
+
+on:
+  push:
+    branches: ["feature/finance-plan-ux-v2"]
+    paths:
+      - "tools/implement_finance_plan_ux_v2.py"
+      - "tools/run_finance_plan_ux_v2.py"
+      - ".github/workflows/implement-finance-plan-ux-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/finance-plan-ux-v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply coordinated UX patch
+        run: python tools/run_finance_plan_ux_v2.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+
+      - name: Verify gateway
+        working-directory: gateway
+        run: |
+          npm ci
+          npm run check
+          npm test
+
+      - name: Verify web compatibility
+        working-directory: web
+        env:
+          NEXT_PUBLIC_BASE_PATH: /manageMe
+          NEXT_PUBLIC_SITE_URL: https://kornellvarga.github.io/manageMe/
+          NEXT_PUBLIC_MANAGEME_API_URL: https://manageme-gateway.kornel-718.workers.dev
+        run: |
+          npm ci
+          npm run check
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify Android debug build
+        working-directory: ExpenseButtonTracker
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Commit verified implementation
+        run: |
+          rm -f tools/implement_finance_plan_ux_v2.py tools/run_finance_plan_ux_v2.py .github/workflows/implement-finance-plan-ux-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "improve planned-expense UX and one-row widget"
+          git push origin HEAD:feature/finance-plan-ux-v2
