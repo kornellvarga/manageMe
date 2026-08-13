@@ -10,10 +10,14 @@ import {
 } from "./auth";
 import { isFinanceCommand, isFinanceSnapshot } from "./finance";
 import { applyFinanceCommandToGitHub, readFinanceLedger, syncFinanceToGitHub } from "./finance-store";
+import { isHealthCommand, isHealthConnectSnapshot } from "./health";
+import { applyHealthCommandToGitHub, readHealthLedger, syncHealthConnectToGitHub } from "./health-store";
+import { buyAndEat } from "./health-purchase";
 import { applyCommandToGitHub, readState } from "./github-store";
 import { handleMcpWithFinance } from "./mcp-router";
 import { isCommand } from "./state";
 import type { FinanceCommand, FinanceSnapshot } from "./finance";
+import type { HealthCommand, HealthConnectSnapshot } from "./health";
 import type { Env, ManageMeCommand } from "./types";
 
 function normalizedOrigin(value: string): string {
@@ -60,7 +64,7 @@ function docs(env: Env): Response {
   return json({
     name: "ManageMe Gateway",
     owner: "Kornel",
-    version: "0.2.0",
+    version: "0.3.0",
     purpose: "Authenticated bridge between the ManageMe web/Android clients, assistant tools, and a private GitHub data repository.",
     endpoints: {
       state: "/v1/state",
@@ -68,6 +72,10 @@ function docs(env: Env): Response {
       finance: "/v1/finance",
       financeSync: "/v1/finance/sync",
       financeCommands: "/v1/finance/commands",
+      health: "/v1/health",
+      healthCommands: "/v1/health/commands",
+      healthBuyAndEat: "/v1/health/buy-and-eat",
+      healthConnectSync: "/v1/health/connect/sync",
       mcp: "/mcp",
       authorize: "/oauth/authorize",
       token: "/oauth/token",
@@ -141,6 +149,39 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (!isFinanceCommand(command)) return json({ error: command === undefined ? "invalid_json" : "invalid_finance_command" }, 400);
     const result = await applyFinanceCommandToGitHub(env, command as FinanceCommand);
     return json({ ledger: result.ledger, entityId: result.entityId, source: "github" });
+  }
+
+  if (url.pathname === "/v1/health" && request.method === "GET") {
+    const auth = await authenticate(request, env, "manage:read");
+    if (!auth) return unauthorized(env, "manage:read");
+    return json({ ledger: (await readHealthLedger(env)).ledger, source: "github" });
+  }
+
+  if (url.pathname === "/v1/health/commands" && request.method === "POST") {
+    const auth = await authenticate(request, env, "manage:write");
+    if (!auth) return unauthorized(env, "manage:write");
+    const command = await requestJson(request);
+    if (!isHealthCommand(command)) return json({ error: command === undefined ? "invalid_json" : "invalid_health_command" }, 400);
+    const result = await applyHealthCommandToGitHub(env, command as HealthCommand);
+    return json({ ledger: result.ledger, entityId: result.entityId, source: "github" });
+  }
+
+  if (url.pathname === "/v1/health/buy-and-eat" && request.method === "POST") {
+    const auth = await authenticate(request, env, "manage:write");
+    if (!auth) return unauthorized(env, "manage:write");
+    const body = await requestJson(request);
+    if (body === undefined) return json({ error: "invalid_json" }, 400);
+    const result = await buyAndEat(env, body);
+    return json({ ...result, source: "github" }, result.partial === true ? 207 : 200);
+  }
+
+  if (url.pathname === "/v1/health/connect/sync" && request.method === "POST") {
+    const auth = await authenticate(request, env, "manage:write");
+    if (!auth) return unauthorized(env, "manage:write");
+    const snapshot = await requestJson(request);
+    if (!isHealthConnectSnapshot(snapshot)) return json({ error: snapshot === undefined ? "invalid_json" : "invalid_health_connect_snapshot" }, 400);
+    const result = await syncHealthConnectToGitHub(env, snapshot as HealthConnectSnapshot);
+    return json({ ledger: result.ledger, affectedCount: result.affectedCount, source: "github" });
   }
 
   return json({ error: "not_found" }, 404);

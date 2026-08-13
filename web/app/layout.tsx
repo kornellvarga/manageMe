@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./mobile-sync-fix.css";
+import "./health.css";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://kornellvarga.github.io/manageMe/";
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
@@ -43,7 +44,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <a className="global-health-launcher" href={`${basePath}/wellbeing/`}>Health</a>
+      </body>
     </html>
   );
 }

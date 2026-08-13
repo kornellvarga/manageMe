@@ -1,4 +1,5 @@
 import type { ManageMeCommand, ManageMeState } from "./domain";
+import type { HealthCommand, HealthLedger } from "./health-domain";
 
 const API_URL = (process.env.NEXT_PUBLIC_MANAGEME_API_URL || "").replace(/\/$/, "");
 const CLIENT_ID = "manageme-web-v1";
@@ -6,28 +7,18 @@ const ACCESS_KEY = "manageme-oauth-access-v1";
 const REFRESH_KEY = "manageme-oauth-refresh-v1";
 const PKCE_KEY = "manageme-oauth-pkce-v1";
 
-interface TokenResponse {
-  access_token: string;
-  refresh_token?: string;
-  expires_in?: number;
-}
-
-interface StoredAccess {
-  token: string;
-  expiresAt: number;
-}
-
-interface PendingPkce {
-  state: string;
-  verifier: string;
-  redirectUri: string;
-}
+interface TokenResponse { access_token: string; refresh_token?: string; expires_in?: number }
+interface StoredAccess { token: string; expiresAt: number }
+interface PendingPkce { state: string; verifier: string; redirectUri: string }
 
 declare global {
   interface Window {
     ManageMeAndroid?: {
       storeOAuthConfig(apiUrl: string, refreshToken: string): void;
       requestFinanceSync?(): void;
+      requestHealthSync?(): void;
+      healthConnectStatus?(): string;
+      requestHealthConnectPermissions?(): void;
     };
   }
 }
@@ -39,9 +30,7 @@ export class AuthRequiredError extends Error {
   }
 }
 
-export function hasRemoteApi(): boolean {
-  return API_URL.length > 0;
-}
+export function hasRemoteApi(): boolean { return API_URL.length > 0; }
 
 function base64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -71,32 +60,21 @@ function readAccess(): StoredAccess | null {
   }
 }
 
-function bridgeFinanceConnection(): void {
+function bridgeConnection(): void {
   if (typeof window === "undefined" || !API_URL) return;
   const refreshToken = localStorage.getItem(REFRESH_KEY) || "";
   if (!refreshToken) return;
-  try {
-    window.ManageMeAndroid?.storeOAuthConfig(API_URL, refreshToken);
-  } catch {
-    // Browser clients and older APKs intentionally ignore the native bridge.
-  }
+  try { window.ManageMeAndroid?.storeOAuthConfig(API_URL, refreshToken); } catch { /* Older clients ignore this bridge. */ }
 }
 
 function storeTokens(tokens: TokenResponse): void {
-  sessionStorage.setItem(ACCESS_KEY, JSON.stringify({
-    token: tokens.access_token,
-    expiresAt: Date.now() + Math.max(60, tokens.expires_in || 3600) * 1000,
-  } satisfies StoredAccess));
+  sessionStorage.setItem(ACCESS_KEY, JSON.stringify({ token: tokens.access_token, expiresAt: Date.now() + Math.max(60, tokens.expires_in || 3600) * 1000 } satisfies StoredAccess));
   if (tokens.refresh_token) localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
-  bridgeFinanceConnection();
+  bridgeConnection();
 }
 
 async function exchange(parameters: URLSearchParams): Promise<TokenResponse> {
-  const response = await fetch(`${API_URL}/oauth/token`, {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-    body: parameters,
-  });
+  const response = await fetch(`${API_URL}/oauth/token`, { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body: parameters });
   const detail = (await response.json().catch(() => ({}))) as Partial<TokenResponse> & { error_description?: string };
   if (!response.ok || !detail.access_token) throw new AuthRequiredError(detail.error_description || "GitHub connection could not be completed.");
   return detail as TokenResponse;
@@ -106,11 +84,7 @@ async function refreshAccess(): Promise<string | null> {
   const refreshToken = localStorage.getItem(REFRESH_KEY);
   if (!refreshToken) return null;
   try {
-    const tokens = await exchange(new URLSearchParams({
-      grant_type: "refresh_token",
-      client_id: CLIENT_ID,
-      refresh_token: refreshToken,
-    }));
+    const tokens = await exchange(new URLSearchParams({ grant_type: "refresh_token", client_id: CLIENT_ID, refresh_token: refreshToken }));
     storeTokens(tokens);
     return tokens.access_token;
   } catch {
@@ -146,7 +120,6 @@ export async function beginLogin(): Promise<void> {
   const state = randomValue();
   const callback = redirectUri();
   sessionStorage.setItem(PKCE_KEY, JSON.stringify({ state, verifier, redirectUri: callback } satisfies PendingPkce));
-
   const authorize = new URL(`${API_URL}/oauth/authorize`);
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", CLIENT_ID);
@@ -165,23 +138,15 @@ export async function finishLoginIfPresent(): Promise<boolean> {
   const code = url.searchParams.get("code");
   if (!code) {
     const connected = isConnected();
-    if (connected) bridgeFinanceConnection();
+    if (connected) bridgeConnection();
     return connected;
   }
-
   const raw = sessionStorage.getItem(PKCE_KEY);
   sessionStorage.removeItem(PKCE_KEY);
   if (!raw) throw new AuthRequiredError("The sign-in session expired. Please connect again.");
   const pending = JSON.parse(raw) as PendingPkce;
   if (!pending.state || pending.state !== url.searchParams.get("state")) throw new AuthRequiredError("The sign-in response could not be verified.");
-
-  const tokens = await exchange(new URLSearchParams({
-    grant_type: "authorization_code",
-    client_id: CLIENT_ID,
-    code,
-    code_verifier: pending.verifier,
-    redirect_uri: pending.redirectUri,
-  }));
+  const tokens = await exchange(new URLSearchParams({ grant_type: "authorization_code", client_id: CLIENT_ID, code, code_verifier: pending.verifier, redirect_uri: pending.redirectUri }));
   storeTokens(tokens);
   url.searchParams.delete("code");
   url.searchParams.delete("state");
@@ -193,12 +158,7 @@ async function api<T>(path: string, init?: RequestInit, retry = true): Promise<T
   const bearer = await accessToken();
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${bearer}`,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
+    headers: { Accept: "application/json", Authorization: `Bearer ${bearer}`, ...(init?.body ? { "Content-Type": "application/json" } : {}), ...init?.headers },
   });
   if (response.status === 401 && retry) {
     await accessToken(true);
@@ -218,9 +178,19 @@ export async function fetchState(): Promise<ManageMeState> {
 }
 
 export async function sendCommand(command: ManageMeCommand): Promise<ManageMeState> {
-  const result = await api<{ state: ManageMeState }>("/v1/commands", {
-    method: "POST",
-    body: JSON.stringify(command),
-  });
+  const result = await api<{ state: ManageMeState }>("/v1/commands", { method: "POST", body: JSON.stringify(command) });
   return result.state;
+}
+
+export async function fetchHealthLedger(): Promise<HealthLedger> {
+  const result = await api<{ ledger: HealthLedger }>("/v1/health");
+  return result.ledger;
+}
+
+export async function sendHealthCommand(command: HealthCommand): Promise<{ ledger: HealthLedger; entityId?: string }> {
+  return api<{ ledger: HealthLedger; entityId?: string }>("/v1/health/commands", { method: "POST", body: JSON.stringify(command) });
+}
+
+export async function buyAndEatFood(input: Record<string, unknown>): Promise<{ ledger?: HealthLedger; entityId?: string; financeEntryId?: string; partial?: boolean; error?: string }> {
+  return api("/v1/health/buy-and-eat", { method: "POST", body: JSON.stringify(input) });
 }
