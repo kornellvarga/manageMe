@@ -133,8 +133,13 @@ export function HealthPanel({ connected }: { connected: boolean }) {
     await mutate(command("start_fast", { protocolName: "16:8", targetMinutes: 960, eatingWindowMinutes: 480 }), "16:8 fast started.");
   }
 
-  async function endFast(at = Date.now()) {
-    await mutate(command("end_fast", { ...(activeFast ? { fastId: activeFast.id } : {}), endedAtMillis: at }), "Fast ended.");
+  async function endFast(at?: number) {
+    const endedAtMillis = at ?? tick;
+    if (endedAtMillis <= 0) {
+      setMessage("The Health clock is still initializing; try again in a moment.");
+      return;
+    }
+    await mutate(command("end_fast", { ...(activeFast ? { fastId: activeFast.id } : {}), endedAtMillis }), "Fast ended.");
     setFastPromptAt(null);
   }
 
@@ -147,7 +152,11 @@ export function HealthPanel({ connected }: { connected: boolean }) {
       setMessage("Enter how many grams you ate.");
       return;
     }
-    const at = Date.now();
+    const at = tick;
+    if (at <= 0) {
+      setMessage("The Health clock is still initializing; try again in a moment.");
+      return;
+    }
     setBusy(true);
     try {
       if (recordPurchase) {
