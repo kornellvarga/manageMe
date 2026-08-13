@@ -44,7 +44,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <a className="global-health-launcher" href={`${basePath}/wellbeing/`}>Health</a>
+      </body>
     </html>
   );
 }
