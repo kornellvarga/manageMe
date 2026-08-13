@@ -1,4 +1,5 @@
 import type { ManageMeCommand, ManageMeState } from "./domain";
+import type { HealthCommand, HealthLedger } from "./health-domain";
 
 const API_URL = (process.env.NEXT_PUBLIC_MANAGEME_API_URL || "").replace(/\/$/, "");
 const CLIENT_ID = "manageme-web-v1";
@@ -28,6 +29,9 @@ declare global {
     ManageMeAndroid?: {
       storeOAuthConfig(apiUrl: string, refreshToken: string): void;
       requestFinanceSync?(): void;
+      requestHealthSync?(): void;
+      healthConnectStatus?(): string;
+      requestHealthConnectPermissions?(): void;
     };
   }
 }
@@ -71,7 +75,7 @@ function readAccess(): StoredAccess | null {
   }
 }
 
-function bridgeFinanceConnection(): void {
+function bridgeConnection(): void {
   if (typeof window === "undefined" || !API_URL) return;
   const refreshToken = localStorage.getItem(REFRESH_KEY) || "";
   if (!refreshToken) return;
@@ -88,7 +92,7 @@ function storeTokens(tokens: TokenResponse): void {
     expiresAt: Date.now() + Math.max(60, tokens.expires_in || 3600) * 1000,
   } satisfies StoredAccess));
   if (tokens.refresh_token) localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
-  bridgeFinanceConnection();
+  bridgeConnection();
 }
 
 async function exchange(parameters: URLSearchParams): Promise<TokenResponse> {
@@ -165,7 +169,7 @@ export async function finishLoginIfPresent(): Promise<boolean> {
   const code = url.searchParams.get("code");
   if (!code) {
     const connected = isConnected();
-    if (connected) bridgeFinanceConnection();
+    if (connected) bridgeConnection();
     return connected;
   }
 
@@ -223,4 +227,16 @@ export async function sendCommand(command: ManageMeCommand): Promise<ManageMeSta
     body: JSON.stringify(command),
   });
   return result.state;
+}
+
+export async function fetchHealthLedger(): Promise<HealthLedger> {
+  const result = await api<{ ledger: HealthLedger }>("/v1/health");
+  return result.ledger;
+}
+
+export async function sendHealthCommand(command: HealthCommand): Promise<{ ledger: HealthLedger; entityId?: string }> {
+  return api<{ ledger: HealthLedger; entityId?: string }>("/v1/health/commands", {
+    method: "POST",
+    body: JSON.stringify(command),
+  });
 }
