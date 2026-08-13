@@ -12,6 +12,7 @@ import { isFinanceCommand, isFinanceSnapshot } from "./finance";
 import { applyFinanceCommandToGitHub, readFinanceLedger, syncFinanceToGitHub } from "./finance-store";
 import { isHealthCommand, isHealthConnectSnapshot } from "./health";
 import { applyHealthCommandToGitHub, readHealthLedger, syncHealthConnectToGitHub } from "./health-store";
+import { buyAndEat } from "./health-purchase";
 import { applyCommandToGitHub, readState } from "./github-store";
 import { handleMcpWithFinance } from "./mcp-router";
 import { isCommand } from "./state";
@@ -73,6 +74,7 @@ function docs(env: Env): Response {
       financeCommands: "/v1/finance/commands",
       health: "/v1/health",
       healthCommands: "/v1/health/commands",
+      healthBuyAndEat: "/v1/health/buy-and-eat",
       healthConnectSync: "/v1/health/connect/sync",
       mcp: "/mcp",
       authorize: "/oauth/authorize",
@@ -162,6 +164,15 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (!isHealthCommand(command)) return json({ error: command === undefined ? "invalid_json" : "invalid_health_command" }, 400);
     const result = await applyHealthCommandToGitHub(env, command as HealthCommand);
     return json({ ledger: result.ledger, entityId: result.entityId, source: "github" });
+  }
+
+  if (url.pathname === "/v1/health/buy-and-eat" && request.method === "POST") {
+    const auth = await authenticate(request, env, "manage:write");
+    if (!auth) return unauthorized(env, "manage:write");
+    const body = await requestJson(request);
+    if (body === undefined) return json({ error: "invalid_json" }, 400);
+    const result = await buyAndEat(env, body);
+    return json({ ...result, source: "github" }, result.partial === true ? 207 : 200);
   }
 
   if (url.pathname === "/v1/health/connect/sync" && request.method === "POST") {
