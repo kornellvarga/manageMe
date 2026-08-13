@@ -18,6 +18,9 @@ public final class SettingsStore {
     private static final String KEY_FINANCE_LAST_SYNC_AT = "finance_sync_last_at";
     private static final String KEY_FINANCE_LAST_SYNC_ERROR = "finance_sync_last_error";
     private static final String KEY_FINANCE_LAST_REVISION = "finance_sync_last_revision";
+    private static final String KEY_HEALTH_LAST_SYNC_AT = "health_sync_last_at";
+    private static final String KEY_HEALTH_LAST_SYNC_ERROR = "health_sync_last_error";
+    private static final String KEY_HEALTH_LAST_REVISION = "health_sync_last_revision";
 
     private SettingsStore() {
     }
@@ -75,6 +78,7 @@ public final class SettingsStore {
                 .putString(KEY_FINANCE_API_URL, cleanUrl)
                 .putString(KEY_FINANCE_REFRESH_TOKEN, cleanToken)
                 .remove(KEY_FINANCE_LAST_SYNC_ERROR)
+                .remove(KEY_HEALTH_LAST_SYNC_ERROR)
                 .apply();
     }
 
@@ -82,13 +86,25 @@ public final class SettingsStore {
         return !getFinanceApiUrl(context).isEmpty() && !getFinanceRefreshToken(context).isEmpty();
     }
 
+    public static boolean hasManageMeSyncCredentials(Context context) {
+        return hasFinanceSyncCredentials(context);
+    }
+
     public static String getFinanceApiUrl(Context context) {
         return normalizeApiUrl(prefs(context).getString(KEY_FINANCE_API_URL, ""));
+    }
+
+    public static String getManageMeApiUrl(Context context) {
+        return getFinanceApiUrl(context);
     }
 
     public static String getFinanceRefreshToken(Context context) {
         String value = prefs(context).getString(KEY_FINANCE_REFRESH_TOKEN, "");
         return value == null ? "" : value.trim();
+    }
+
+    public static String getManageMeRefreshToken(Context context) {
+        return getFinanceRefreshToken(context);
     }
 
     public static void updateFinanceRefreshToken(Context context, String refreshToken) {
@@ -98,11 +114,16 @@ public final class SettingsStore {
         }
     }
 
+    public static void updateManageMeRefreshToken(Context context, String refreshToken) {
+        updateFinanceRefreshToken(context, refreshToken);
+    }
+
     public static void clearFinanceSyncCredentials(Context context) {
         prefs(context).edit()
                 .remove(KEY_FINANCE_API_URL)
                 .remove(KEY_FINANCE_REFRESH_TOKEN)
                 .remove(KEY_FINANCE_LAST_SYNC_ERROR)
+                .remove(KEY_HEALTH_LAST_SYNC_ERROR)
                 .apply();
     }
 
@@ -115,10 +136,7 @@ public final class SettingsStore {
     }
 
     public static void markFinanceSyncError(Context context, String message) {
-        String safeMessage = message == null ? "Finance sync failed." : message.trim();
-        if (safeMessage.length() > 300) {
-            safeMessage = safeMessage.substring(0, 300);
-        }
+        String safeMessage = clipped(message, "Finance sync failed.");
         prefs(context).edit().putString(KEY_FINANCE_LAST_SYNC_ERROR, safeMessage).apply();
     }
 
@@ -135,6 +153,31 @@ public final class SettingsStore {
         return value == null ? "" : value;
     }
 
+    public static void markHealthSyncSuccess(Context context, long revision) {
+        prefs(context).edit()
+                .putLong(KEY_HEALTH_LAST_SYNC_AT, System.currentTimeMillis())
+                .putLong(KEY_HEALTH_LAST_REVISION, Math.max(0L, revision))
+                .remove(KEY_HEALTH_LAST_SYNC_ERROR)
+                .apply();
+    }
+
+    public static void markHealthSyncError(Context context, String message) {
+        prefs(context).edit().putString(KEY_HEALTH_LAST_SYNC_ERROR, clipped(message, "Health Connect sync failed.")).apply();
+    }
+
+    public static long getHealthLastSyncAt(Context context) {
+        return prefs(context).getLong(KEY_HEALTH_LAST_SYNC_AT, 0L);
+    }
+
+    public static long getHealthLastRevision(Context context) {
+        return prefs(context).getLong(KEY_HEALTH_LAST_REVISION, 0L);
+    }
+
+    public static String getHealthLastSyncError(Context context) {
+        String value = prefs(context).getString(KEY_HEALTH_LAST_SYNC_ERROR, "");
+        return value == null ? "" : value;
+    }
+
     public static String normalizeApiUrl(String value) {
         String clean = value == null ? "" : value.trim();
         while (clean.endsWith("/")) {
@@ -144,6 +187,11 @@ public final class SettingsStore {
             return "";
         }
         return clean;
+    }
+
+    private static String clipped(String value, String fallback) {
+        String safe = value == null || value.trim().isEmpty() ? fallback : value.trim();
+        return safe.length() > 300 ? safe.substring(0, 300) : safe;
     }
 
     private static SharedPreferences prefs(Context context) {
